@@ -2,14 +2,12 @@ module Motor.Interpreter.ObjectInterpreter
   ( buildObject
   ) where
 
-import Prelude
-import Control.Monad.Free (Free, runFreeM)
+import Prelude (Unit, discard, pure, unit)
+import Control.Monad.Free (runFreeM)
 import Control.Monad.State (State, modify, execState)
 import Data.Either (Either(..))
-import Data.Map as M
 import Data.Maybe (Maybe(..))
-import Partial.Unsafe (unsafeCrashWith)
-import Motor.Story
+import Motor.Story (NounType(..), Object, ObjectBuilder, ObjectBuilderF(..))
 
 
 interpret ∷ ∀ next. ObjectBuilderF (ObjectBuilder next) → State Object (ObjectBuilder next)

@@ -3,45 +3,44 @@ module Motor.Interpreter.ActionInterpreter
   , runAction'
   ) where
 
-import Prelude
-import Control.Monad (class Monad)
-import Control.Monad.Free (Free, runFreeM)
-import Control.Monad.State (StateT, State, modify, execStateT, get, put, runStateT)
+import Prelude (class Semigroup, Unit, bind, discard, pure, unit, ($), (+), (/=), (<<<), (||))
+import Control.Monad.Free (runFreeM)
+import Control.Monad.State (StateT, modify, execStateT, get, put, runStateT)
+import Control.Monad.State.Class (class MonadState)
 import Control.Monad.Writer (Writer, tell, runWriter)
-import Data.Exists (Exists, runExists)
+import Data.Exists (runExists)
 import Data.Map as M
 import Data.List as L
+import Data.Array ((:))
 import Data.Array as A
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
-import Partial.Unsafe (unsafeCrashWith)
 import Motor.Interpreter.StateInterpreter (interpretGetState)
-import Motor.Lens
-import Motor.Story
+import Motor.Lens (_Just, at, pLocation, rItems, sInventory, sPlayer, sRooms, sSay, sScore, sStates, to, (%~), (^.))
+import Motor.Story (Action, ActionSyntax(..), Oid, Rid, SetStateF(..), Sid(..), Story)
 import Data.Newtype (class Newtype, unwrap)
-import Data.Semigroup (class Semigroup)
 import Data.Monoid (class Monoid)
 
 
 roomOf' ∷ Story → Oid → Maybe Rid
-roomOf' story oid = L.head $ M.keys $ M.filter (\room → oid `L.elem` room.items) story.rooms
+roomOf' story oid = L.head $ M.keys $ M.filter (\room → oid `L.elem` room.items) (story ^. sRooms)
 
 interpret ∷ ∀ next. ActionSyntax (Action next) → StateT Story (Writer (Array String)) (Action next)
 interpret (PrintLn str a) = do
   tell [ str ]
   pure a
 interpret (AddItem rid oid a) = do
-  modify $ (sRooms <<< at rid <<< _Just <<< rItems) %~ (oid L.: _)
+  modify $ (sRooms <<< at rid <<< _Just <<< rItems) %~ (oid : _)
   pure a
 interpret (TakeItem oid a) = do
-  modify $ (sPlayer <<< pInventory) %~ (oid L.: _)
+  modify $ sInventory %~ (oid : _)
   pure a
 interpret (DestroyItem oid a) = do
-  modify $ (sPlayer <<< pInventory) %~ L.filter (_ /= oid)
+  modify $ sInventory %~ A.filter (_ /= oid)
   story ← get
   case roomOf' story oid of
     Nothing  → pure unit
-    Just rid → modify $ (sRooms <<< at rid <<< _Just <<< rItems) %~ L.filter (_ /= oid)
+    Just rid → modify $ (sRooms <<< at rid <<< _Just <<< rItems) %~ A.filter (_ /= oid)
   pure a
 interpret (IncScore i a) = do
   modify $ sScore %~ (_ + i)
@@ -52,18 +51,18 @@ interpret (Say l atn a) = do
   pure a
 interpret (PlayerHas oid a) = do
   story ← get
-  let has = oid `L.elem` story.player.inventory
+  let has = unwrap $ story ^. (sInventory <<< to (Any <<< A.elem oid))
   pure (a has)
 interpret (RoomHas rid oid a) = do
   story ← get
-  let has = unwrap $ story ^. (sRooms <<< at rid <<< _Just <<< rItems <<< to (Any <<< L.elem oid))
+  let has = unwrap $ story ^. (sRooms <<< at rid <<< _Just <<< rItems <<< to (Any <<< A.elem oid))
   pure (a has)
 interpret (RoomOf oid a) = do
   story ← get
   pure (a (roomOf' story oid))
 interpret (CurrentRoom a) = do
   story ← get
-  pure (a story.player.location)
+  pure (a (story ^. (sPlayer <<< pLocation)))
 interpret (GetState exists) = interpretGetState exists
 interpret (SetState exists) = do
   story ← get
@@ -75,22 +74,22 @@ interpret (SetState exists) = do
 
 newtype Any = Any Boolean
 
-instance semigroupAny :: Semigroup Any where
+instance semigroupAny ∷ Semigroup Any where
   append (Any x) (Any y) = Any (x || y)
 
-instance monoidAny :: Monoid Any where
+instance monoidAny ∷ Monoid Any where
   mempty = Any false
 
-derive instance newtypeAny :: Newtype Any _
+derive instance newtypeAny ∷ Newtype Any _
 
-runAction ∷ Action Unit → State Story (Array String)
+runAction ∷ ∀ m. MonadState Story m ⇒ Action Unit → m (Array String)
 runAction action = do
   story ← get
   let Tuple s w = runWriter $ execStateT (runFreeM interpret action) story
   put s
   pure w
 
-runAction' ∷ ∀ r. Action r → State Story (Tuple (Array String) r)
+runAction' ∷ ∀ m r. MonadState Story m ⇒ Action r → m (Tuple (Array String) r)
 runAction' action = do
   story ← get
   let Tuple (Tuple r story') txt = runWriter $ runStateT (runFreeM interpret action) story

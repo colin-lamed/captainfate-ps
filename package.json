@@ -5,9 +5,10 @@
   "main": "",
   "private": true,
   "scripts": {
-    "clean": "rimraf output && rimraf .pulp-cache",
-    "build": "pulp browserify --to dist/Main.js",
-    "build-fail-on-warn": "pulp browserify --to dist/Main.js -- --censor-lib --strict",
+    "clean": "rimraf dist && rimraf output && rimraf .pulp-cache",
+    "build": "pulp browserify --main BrowserMain --to dist/Main.js",
+    "build-fail-on-warn": "pulp browserify --main BrowserMain --to dist/Main.js -- --censor-lib --strict",
+    "build-optimised": "pulp build -O --main BrowserMain --to dist/Main.js",
     "test": "pulp test"
   },
   "devDependencies": {

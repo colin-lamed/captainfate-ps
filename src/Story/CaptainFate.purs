@@ -335,7 +335,7 @@ story = do
 
 -- | provides complete solution, which can be useful for testing app
 -- e.g. replaying as cookie
-walkthrough :: Array String
+walkthrough ∷ Array String
 walkthrough =
   [ "go Cafe"
   , "examine door to the toilet"

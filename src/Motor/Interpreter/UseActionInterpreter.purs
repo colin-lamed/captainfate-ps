@@ -2,19 +2,15 @@ module Motor.Interpreter.UseActionInterpreter
   ( runUseAction
   ) where
 
-import Prelude
-import Control.Monad.Free (Free, runFreeM)
-import Control.Monad.State (StateT, State, modify, execStateT, get, put, runStateT)
+import Prelude (Unit, bind, discard, pure, ($), (==))
+import Control.Monad.Free (runFreeM)
+import Control.Monad.State (StateT, execStateT, get, put)
+import Control.Monad.State.Class (class MonadState)
 import Control.Monad.Writer (Writer, tell, runWriter)
-import Data.Exists (runExists)
-import Data.Map as M
 import Data.Maybe.First (First(..))
-import Data.List as L
-import Data.Array as A
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
-import Partial.Unsafe (unsafeCrashWith)
-import Motor.Story
+import Motor.Story (Action, Oid, Story, UseAction, UseActionF(..))
 import Motor.Interpreter.StateInterpreter (interpretGetState)
 
 
@@ -24,7 +20,7 @@ interpret oid (With oid' atn a) = do
   pure a
 interpret _ (GetState1 exists) = interpretGetState exists
 
-runUseAction ∷ UseAction Unit → Oid → State Story (Maybe (Action Unit))
+runUseAction ∷ ∀ m. MonadState Story m ⇒ UseAction Unit → Oid → m (Maybe (Action Unit))
 runUseAction action oid = do
   story ← get
   let Tuple s (First w) = runWriter $ execStateT (runFreeM (interpret oid) action) story

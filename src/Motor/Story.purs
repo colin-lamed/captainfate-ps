@@ -1,19 +1,15 @@
 module Motor.Story where
 
 import Prelude
-import Control.Monad.Free (Free, runFreeM, liftF)
-import Control.Monad.Writer (Writer, execWriter)
-import Control.Monad.Writer.Class (tell)
-import Data.Foldable (for_)
+import Control.Monad.Free (Free, liftF)
 import Data.Map as M
-import Data.List as L
 import Data.Maybe (Maybe(..))
 import Data.Dynamic (Dynamic, toDynamic, fromDynamic)
 import Data.Either (Either(..))
 import Data.Exists (Exists, mkExists, runExists)
+import Data.Newtype (class Newtype)
 import Data.Typeable (class Typeable)
-import Data.Tuple (Tuple(..))
-import Partial.Unsafe (unsafeCrashWith)
+import Data.Tuple (Tuple)
 
 
 newtype Rid = Rid String
@@ -35,7 +31,7 @@ instance showSid ∷ Show (Sid a) where
   show (Sid s) = s
 
 
-type Story =
+newtype Story = Story
   { title    ∷ String
   , player   ∷ Player
   , rooms    ∷ M.Map Rid Room
@@ -46,9 +42,10 @@ type Story =
   , say      ∷ Array (Tuple String (Action Unit))
   , init     ∷ Action Unit
   }
+derive instance newtypeStory ∷ Newtype Story _
 
 type Player =
-  { inventory ∷ L.List Oid
+  { inventory ∷ Array Oid
   , location  ∷ Rid
   }
 
@@ -71,19 +68,19 @@ data ExitsBuilderF next
   = AddExit Exit next
   | GetState2    (Exists (GetStateF next))
 
-mapMkStateExists :: ∀ a b. (a → b) → Exists (MkStateF a) → Exists (MkStateF b)
+mapMkStateExists ∷ ∀ a b. (a → b) → Exists (MkStateF a) → Exists (MkStateF b)
 mapMkStateExists f exists =
   runExists (\(MkStateF {val, toDyn, next}) →
     mkExists $ MkStateF {val, toDyn, next: f <<< next}
   ) exists
 
-mapGetStateExists :: ∀ a b. (a → b) → Exists (GetStateF a) → Exists (GetStateF b)
+mapGetStateExists ∷ ∀ a b. (a → b) → Exists (GetStateF a) → Exists (GetStateF b)
 mapGetStateExists f exists =
   runExists (\(GetStateF {sid, fromDyn, next}) →
     mkExists $ GetStateF {sid, fromDyn, next: f <<< next}
   ) exists
 
-mapSetStateExists :: ∀ a b. (a → b) → Exists (SetStateF a) → Exists (SetStateF b)
+mapSetStateExists ∷ ∀ a b. (a → b) → Exists (SetStateF a) → Exists (SetStateF b)
 mapSetStateExists f exists =
   runExists (\(SetStateF {sid, val, next, toDyn}) →
     mkExists $ SetStateF {sid, val, toDyn, next: f next}
@@ -100,14 +97,14 @@ type Room =
   { title        ∷ String
   , descr        ∷ Action Unit
   , exitsBuilder ∷ ExitsBuilder Unit
-  , items        ∷ L.List Oid
+  , items        ∷ Array Oid -- or Set?
   }
 
 data RoomBuilderF next
   = SetRTitle String              next
   | SetRDescr (Action Unit)       next
   | SetRExits (ExitsBuilder Unit) next
-  | SetRItems (L.List Oid)        next
+  | SetRItems (Array Oid)        next
 
 derive instance functorRoomBuilderF ∷ Functor RoomBuilderF
 
@@ -163,7 +160,7 @@ data MkStateF next a = MkStateF { val   ∷ a
 
 data StoryBuilderF next
   = SetSTitle   String                   next
-  | MkPlayer    (L.List Oid) Rid         next
+  | MkPlayer    (Array Oid) Rid          next
   | SetMaxScore Int                      next
   | MkRoom      Rid (RoomBuilder Unit)   next
   | MkObject    Oid (ObjectBuilder Unit) next
@@ -190,7 +187,7 @@ setTitle ∷ String → StoryBuilder Unit
 setTitle s = liftF $ SetSTitle s unit
 
 mkPlayer ∷ Array Oid → Rid → StoryBuilder Unit
-mkPlayer os r = liftF $ MkPlayer (L.fromFoldable os) r unit
+mkPlayer os r = liftF $ MkPlayer os r unit
 
 setMaxScore ∷ Int → StoryBuilder Unit
 setMaxScore i = liftF $ SetMaxScore i unit
@@ -220,7 +217,7 @@ setRExits ∷ ExitsBuilder Unit → RoomBuilder Unit
 setRExits eb = liftF $ SetRExits eb unit
 
 setRItems ∷ Array Oid → RoomBuilder Unit
-setRItems oids = liftF $ SetRItems (L.fromFoldable oids) unit -- array is a better dsl for creation - what's best internal model? set?
+setRItems oids = liftF $ SetRItems oids unit
 
 setOTitle ∷ String → ObjectBuilder Unit
 setOTitle s = liftF $ SetOTitle s unit

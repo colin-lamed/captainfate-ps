@@ -2,12 +2,11 @@ module Motor.Interpreter.RoomInterpreter
   ( buildRoom
   ) where
 
-import Prelude
-import Control.Monad.Free (Free, runFreeM)
+import Prelude (Unit, discard, pure, unit)
+import Control.Monad.Free (runFreeM)
 import Control.Monad.State (State, modify, execState)
 import Control.Plus (empty)
-import Partial.Unsafe (unsafeCrashWith)
-import Motor.Story
+import Motor.Story (Room, RoomBuilder, RoomBuilderF(..))
 
 
 interpret ∷ ∀ next. RoomBuilderF (RoomBuilder next) → State Room (RoomBuilder next)

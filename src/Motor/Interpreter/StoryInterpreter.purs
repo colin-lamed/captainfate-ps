@@ -2,46 +2,45 @@ module Motor.Interpreter.StoryInterpreter
   ( buildStory
   ) where
 
-import Prelude
-import Control.Monad.Free (Free, runFreeM)
-import Control.Monad.State (State, modify, execState, get)
+import Prelude (Unit, discard, pure, unit, ($))
+import Control.Monad.Free (runFreeM)
+import Control.Monad.State (State, modify, execState)
 import Control.Plus (empty)
 import Data.Exists (runExists)
-import Data.List as L
 import Data.Map as M
 import Data.Maybe (Maybe(..))
-import Partial.Unsafe (unsafeCrashWith)
-import Motor.Story
+import Motor.Story (MkStateF(..), Rid(..), Sid(..), Story(..), StoryBuilder, StoryBuilderF(..))
 import Motor.Interpreter.RoomInterpreter (buildRoom)
 import Motor.Interpreter.ObjectInterpreter (buildObject)
+import Motor.Lens (sInit, sMaxScore, sObjects, sPlayer, sRooms, sStates, sTitle, (%~), (.~))
 
 
 interpret ∷ ∀ next. StoryBuilderF (StoryBuilder next) → State Story (StoryBuilder next)
 interpret (SetSTitle title a) = do
-  modify \s → s { title = title }
+  modify $ sTitle .~ title
   pure a
 interpret (MkPlayer os rid a) = do
-  modify \s → s { player = { inventory: os, location: rid } }
+  modify $ sPlayer .~ { inventory: os, location: rid }
   pure a
 interpret (SetMaxScore i a) = do
-  modify \s → s { maxScore = Just i }
+  modify $ sMaxScore .~ Just i
   pure a
 interpret (MkRoom rid rb a) = do
   let room = buildRoom rb
-  modify \s → s { rooms = M.insert rid room s.rooms }
+  modify $ sRooms %~ M.insert rid room
   pure a
 interpret (MkObject oid ob a) = do
   let object = buildObject ob
-  modify \s → s { objects = M.insert oid object s.objects }
+  modify $ sObjects %~ M.insert oid object
   pure a
 interpret (SetSInit atn a) = do
-  modify \s → s { init = atn }
+  modify $ sInit .~ atn
   pure a
 interpret (MkState key exists) = do
   let {dyn, a} = runExists (\(MkStateF {val, toDyn, next}) →
                              {dyn: toDyn val, a: next (Sid key)}
                            ) exists
-  modify \s → s { states = M.insert key dyn s.states }
+  modify $ sStates %~ M.insert key dyn
   pure a
 
 
@@ -49,13 +48,13 @@ interpret (MkState key exists) = do
 
 buildStory ∷ StoryBuilder Unit → Story
 buildStory sb = execState (runFreeM interpret sb) initialStory
-  where initialStory = { title   : "1"-- unsafeCrashWith "title - not set" (needs to be made lazy: Data.Lazy (defer, force)) -- TODO better yet, use Data.Record.Builder (can we prove final result has all expected fields?)
-                       , player  : { inventory: empty, location: Rid "madeup" } -- unsafeCrashWith "player - not set"
-                       , rooms   : M.empty
-                       , objects : M.empty
-                       , states  : M.empty
-                       , score   : 0
-                       , maxScore: Nothing
-                       , say     : []
-                       , init    : pure unit
-                       }
+  where initialStory = Story { title   : "1"-- unsafeCrashWith "title - not set" (needs to be made lazy: Data.Lazy (defer, force)) -- TODO better yet, use Data.Record.Builder (can we prove final result has all expected fields?)
+                             , player  : { inventory: empty, location: Rid "madeup" } -- unsafeCrashWith "player - not set"
+                             , rooms   : M.empty
+                             , objects : M.empty
+                             , states  : M.empty
+                             , score   : 0
+                             , maxScore: Nothing
+                             , say     : []
+                             , init    : pure unit
+                             }

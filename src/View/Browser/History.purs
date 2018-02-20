@@ -1,4 +1,4 @@
-module View.History
+module View.Browser.History
   ( readPath
   , writePath
   , updateHistory
@@ -8,12 +8,12 @@ import Prelude
 import Browser.WebStorage (WEB_STORAGE)
 import Browser.WebStorage as WS
 import Control.Monad.Eff (Eff)
+import Control.Monad.Eff.Class (liftEff)
 import Control.Monad.Eff.Console (log)
-import Control.Monad.Trans.Class (lift)
 import Data.Either (Either(..))
 import Data.Maybe (maybe)
 import Motor.History as H
-import View.Types (SS)
+import View.Browser.Types (SS)
 
 readPath
   ∷ ∀ eff
@@ -33,7 +33,7 @@ updateHistory
   ∷ (H.History → H.History)
   → SS Unit
 updateHistory f = do
-  oldPath ← lift $ lift readPath
+  oldPath ← liftEff readPath
   case H.deserialse oldPath of
-    Right h → lift $ lift $ writePath $ H.serialise $ f h
-    Left h  → lift $ lift $ log ("Failed to parse history: " <> h)
+    Right h → liftEff $ writePath $ H.serialise $ f h
+    Left h  → liftEff $ log ("Failed to parse history: " <> h)

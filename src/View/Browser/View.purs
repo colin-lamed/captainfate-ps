@@ -1,11 +1,11 @@
-module View.View (view) where
+module View.Browser.View (view) where
 
 import Prelude
 import Browser.WebStorage (WEB_STORAGE)
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Console (CONSOLE, log)
 import Control.Monad.State (evalState, runState, modify, get)
-import Data.Array (concatMap, fromFoldable, null)
+import Data.Array (concatMap, null)
 import Data.Either (Either(..))
 import Data.Foldable (intercalate)
 import Data.Maybe (Maybe(..), fromJust)
@@ -17,7 +17,7 @@ import DOM.HTML.Window (document)
 import DOM.Node.Element (setScrollTop)
 import DOM.Node.NonElementParentNode (getElementById)
 import DOM.Node.Types (ElementId(..), documentToNonElementParentNode)
-import Partial.Unsafe (unsafePartial, unsafeCrashWith)
+import Partial.Unsafe (unsafePartial)
 import React (ReactElement, ReactSpec, ReactThis, createClass, createFactory, readState, spec)
 import React.DOM as D
 import React.DOM.Props as P
@@ -26,11 +26,12 @@ import Motor.History as H
 import Motor.Interpreter.StoryInterpreter (buildStory)
 import Motor.Interpreter.ActionInterpreter (runAction)
 import Motor.Story (Action, DirHint(..), Oid, Rid, StoryBuilder)
-import Motor.Util (currentRoom, goto, listExits, takeItemS, the, toObject, toRoom, roomDesc, use)
-import Motor.Lens (sSay, (.~))
-import View.Utils (getOffsetHeight)
-import View.History (readPath, writePath, updateHistory)
-import View.Types (AppState, Option(..), SS, addText, clearText, hoistG, initOptions, resetOptions, runSS, setOptions)
+import Motor.Util (currentRoom, goto, listExits, takeItemS, the, toObject, toRoom, roomDesc, useItself, useWith)
+import Motor.Lens (pLocation, sInventory, sMaxScore, sPlayer, sSay, sScore, sTitle, (.~), (^.))
+import View.Browser.History (readPath, writePath, updateHistory)
+import View.Browser.Types (AppState, Option(..), SS, addText, clearText, initOptions, resetOptions, runSS, setOptions)
+import View.Browser.Utils (getOffsetHeight)
+
 
 onClickInventory ∷ Array Oid → SS Unit
 onClickInventory items =
@@ -54,9 +55,9 @@ onClickInventoryO oid = do
 
 onClickExamineO ∷ Oid → SS Unit
 onClickExamineO oid = do
-  obj   ← hoistG $ toObject oid
+  obj   ← toObject oid
   story ← get
-  descr ← hoistG $ runAction obj.descr
+  descr ← runAction obj.descr
   addText $ ["You examine " <> the obj <> "."] <> descr
   resetOptions
   updateHistory $ H.addExamine (obj.title)
@@ -64,8 +65,8 @@ onClickExamineO oid = do
 
 onClickTakeO ∷ Oid → SS Unit
 onClickTakeO oid = do
-  hoistG $ takeItemS oid
-  obj ← hoistG $ toObject oid
+  takeItemS oid
+  obj ← toObject oid
   addText ["You take " <> the obj <> "."]
   resetOptions
   updateHistory $ H.addTake (obj.title)
@@ -73,27 +74,28 @@ onClickTakeO oid = do
 
 onClickUseO ∷ Oid → SS Unit
 onClickUseO oid = do
-  obj   ← hoistG $ toObject oid
+  obj   ← toObject oid
   story ← get
-  room  ← hoistG $ currentRoom
-  let accessibleItems = story.player.inventory <> room.items
+  room  ← currentRoom
+  let accessibleItems = (story ^. sInventory) <> room.items
   case obj.use of
     Left l  → do addText ["You use " <> the obj <> "."]
-                 txt ← hoistG $ use oid Nothing
-                 addText case txt of
-                           []  → ["Nothing happens."]
-                           txt → txt
+                 res ← useItself oid
+                 case res of
+                   Left error → pure unit -- TODO log error!
+                   Right []   → addText ["Nothing happens."]
+                   Right txt  → addText txt
                  resetOptions
                  updateHistory $ H.addUse (obj.title) Nothing
-    Right r → setOptions $ fromFoldable $ map (\oid2 → UseWith oid oid2) accessibleItems
+    Right r → setOptions $ map (\oid2 → UseWith oid oid2) accessibleItems
   pure unit
 
 onClickUseWith ∷ Oid → Oid → SS Unit
 onClickUseWith oid1 oid2 = do
-  obj1 ← hoistG $ toObject oid1
-  obj2 ← hoistG $ toObject oid2
+  obj1 ← toObject oid1
+  obj2 ← toObject oid2
   addText ["You use " <> the obj1 <> " with " <> the obj2 <> "."]
-  txt <- hoistG $ use oid1 (Just oid2)
+  txt ← useWith oid1 oid2
   addText case txt of
             []  → ["Nothing happens."]
             txt → txt
@@ -103,12 +105,12 @@ onClickUseWith oid1 oid2 = do
 
 exitAction ∷ String → Action (Maybe Rid) → SS Unit
 exitAction label roomAction = do
-  res ← hoistG $ goto roomAction
-  _   ← case res of
-         Left txts → addText txts
-         Right rid → do clearText
-                        txts ← hoistG roomDesc
-                        addText txts
+  res ← goto roomAction
+  case res of
+    Left txts → addText txts
+    Right _   → do clearText
+                   txts ← roomDesc
+                   addText txts
   resetOptions
   updateHistory $ H.addGo label
   pure unit
@@ -125,14 +127,15 @@ onClickSay label atn = do
 
 sayAction ∷ Action Unit → SS Unit
 sayAction atn = do
-  txts ← hoistG $ do modify $ sSay .~ []
-                     runAction atn
+  txts ← do modify $ sSay .~ []
+            runAction atn
   addText txts
   story ← get
-  if null story.say
+  let sayOptions = story ^. sSay
+  if null sayOptions
     then do addText ["You have nothing to say."]
             resetOptions
-    else setOptions $ map (\(Tuple l atn) → Say l atn) story.say
+    else setOptions $ map (\(Tuple l atn) → Say l atn) sayOptions
   pure unit
 
 initState
@@ -187,16 +190,16 @@ mainContent ∷ ∀ props eff. AppState → ReactSpec props AppState ReactElemen
 mainContent state0 = do
   spec state0 \ctx → do
     {story, ui} ← readState ctx
-    let rid = story.player.location
+    let rid = story ^. (sPlayer <<< pLocation)
         r   = evalState (toRoom rid) story
 
     let --renderRoom ∷ D.ReactElement
         renderRoom     = D.text r.title
 
         --renderProgress ∷ D.ReactElement
-        renderProgress = D.text $ case story.maxScore of
-                                    Just maxScore → show (100 * story.score / maxScore) <> "% completed"
-                                    Nothing       → "Score " <> show story.score
+        renderProgress = D.text $ case story ^.sMaxScore of
+                                    Just maxScore → show (100 * (story ^.sScore) / maxScore) <> "% completed"
+                                    Nothing       → "Score " <> show (story ^.sScore)
 
 
         -- list room exits
@@ -258,7 +261,7 @@ mainContent state0 = do
             , P.role      "main"
             ]
             [ D.div [ P.className "page-header" ]
-                    [ D.h1' [ D.text story.title ] ]
+                    [ D.h1' [ D.text (story ^. sTitle) ] ]
             , D.div [ P.className "row" ]
                     [ D.div [ P.className "panel panel-default" ]
                             [ D.div [ P.className "panel-heading" ]
@@ -291,9 +294,9 @@ view sb = do
   path ← readPath
   state0 ← initState sb path
 
-  let --spec0 :: ∀ props render eff. ReactSpec props AppState render eff
+  let --spec0 ∷ ∀ props render eff. ReactSpec props AppState render eff
       spec0 = mainContent state0
-  let --spec1 :: ∀ props render eff. ReactSpec props AppState render eff
+  let --spec1 ∷ ∀ props render eff. ReactSpec props AppState render eff
       spec1 = spec0 { componentDidUpdate = afterComponentUpdate }
 
   let component = D.div [] [ createFactory (createClass spec1) unit ]

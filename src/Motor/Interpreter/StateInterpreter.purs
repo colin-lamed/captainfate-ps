@@ -2,26 +2,20 @@ module Motor.Interpreter.StateInterpreter
   ( interpretGetState
   ) where
 
-import Prelude
-import Control.Monad (class Monad)
-import Control.Monad.Free (Free, runFreeM)
-import Control.Monad.State (StateT, State, modify, execStateT, get, put, runStateT)
-import Control.Monad.Writer (Writer, tell, runWriter)
+import Prelude (class Monad, bind, pure, show, (<<<), (<>))
+import Control.Monad.State (StateT, get)
 import Data.Exists (Exists, runExists)
-import Data.Map as M
-import Data.List as L
-import Data.Array as A
 import Data.Maybe (Maybe(..))
-import Data.Tuple (Tuple(..))
 import Partial.Unsafe (unsafeCrashWith)
-import Motor.Story
+import Motor.Story (GetStateF(..), Sid(..), Story)
+import Motor.Lens (at, sStates, (^.))
 
 
-interpretGetState ∷ ∀ next m. Monad m => Exists (GetStateF next) → StateT Story m next
+interpretGetState ∷ ∀ next m. Monad m ⇒ Exists (GetStateF next) → StateT Story m next
 interpretGetState exists = do
   story ← get
   let a = runExists (\(GetStateF { sid: (Sid sid), fromDyn, next }) →
-                      case M.lookup sid story.states of
+                      case story ^. (sStates <<< at sid) of
                         Just dyn → case fromDyn dyn of
                           Just val' → next val'
                           Nothing   → unsafeCrashWith ("could not extract value from " <> show sid)

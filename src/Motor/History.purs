@@ -15,30 +15,25 @@ module Motor.History
   , initStory
   ) where
 
-import Prelude
-import Control.Monad.State (State, get, modify, evalState)
-import Text.Parsing.Parser               (Parser, runParser)
-import Text.Parsing.Parser.Combinators   (lookAhead, manyTill, sepBy, try)
+import Prelude (class Show, bind, discard, map, pure, show, ($), (*>), (<$>), (<*>), (<<<), (<>), (>>=))
+import Control.Monad.State (State, get, modify)
+import Text.Parsing.Parser (Parser, runParser)
+import Text.Parsing.Parser.Combinators (lookAhead, manyTill, sepBy, try)
 import Text.Parsing.Parser.String   (noneOf, string)
 import Control.Alt ((<|>))
-import Data.Array ((:), (!!), filter)
+import Data.Array ((:))
 import Data.Array as A
 import Data.Maybe  (Maybe(..))
-import Data.Map as M
-import Data.Either (Either(..), either)
+import Data.Either (Either(..))
 import Data.Foldable (foldM)
 import Data.List as L
 import Data.String as S
 import Data.Tuple (Tuple(..))
-import Debug.Trace               (trace)
-import Partial.Unsafe (unsafeCrashWith)
-
-import Motor.Story
-import Motor.Interpreter.ActionInterpreter (runAction, runAction')
-import Motor.Interpreter.UseActionInterpreter (runUseAction)
-import Motor.Interpreter.ExitsInterpreter (buildExits)
-import Motor.Util (goto, lookupOidByTitle, lookupRoomAction, lookupSay, use, takeItemS, toObject, toRoom)
-import Motor.Lens
+import Debug.Trace (trace)
+import Motor.Story (Story)
+import Motor.Interpreter.ActionInterpreter (runAction)
+import Motor.Util (goto, lookupOidByTitle, lookupRoomAction, lookupSay, useItself, useWith, takeItemS, toObject, toRoom)
+import Motor.Lens (sInit, sSay, (.~), (^.))
 
 
 data HistoryEntry
@@ -49,7 +44,7 @@ data HistoryEntry
   | HTalk    String
   | HSay     String
 
-instance historyEntryShow :: Show HistoryEntry where
+instance historyEntryShow ∷ Show HistoryEntry where
   show = toText
   -- show (HGo s) = "Go " <> s
   -- show (HTake s) = "Take " <> s
@@ -62,30 +57,30 @@ instance historyEntryShow :: Show HistoryEntry where
 type History = Array HistoryEntry
 
 -- | Add go instruction to 'History'.
-addGo :: String → History → History
+addGo ∷ String → History → History
 addGo t = ((HGo t) : _)
 
 -- | Add take instruction to 'History'.
-addTake :: String → History → History
+addTake ∷ String → History → History
 addTake t = ((HTake t) : _)
 
 -- | Add examine instruction to 'History'.
-addExamine :: String → History → History
+addExamine ∷ String → History → History
 addExamine t = ((HExamine t) : _)
 
 -- | Add use instruction to 'History'.
-addUse :: String → Maybe String → History → History
+addUse ∷ String → Maybe String → History → History
 addUse t1 mt2 = ((HUse t1 mt2) : _)
 
 -- | Add talk instruction to 'History'.
-addTalk :: String → History → History
+addTalk ∷ String → History → History
 addTalk t = ((HTalk t) : _)
 
 -- | Add say instruction to 'History'.
-addSay :: String → History → History
+addSay ∷ String → History → History
 addSay t = ((HSay t) : _)
 
-replay :: (Either String (Array String)) → HistoryEntry → State Story (Either String (Array String))
+replay ∷ (Either String (Array String)) → HistoryEntry → State Story (Either String (Array String))
 replay _ (HGo dir) = trace ("HGo " <> dir) \_ → do
   eRoomAction ← lookupRoomAction dir
   case eRoomAction of
@@ -137,45 +132,45 @@ replay _ (HSay say') = trace ("HSay " <> say') \_ → do
                    pure $ Right txt
     Left err → pure $ Left err
 
-replayUseWith :: String → String → State Story (Either String (Array String))
+replayUseWith ∷ String → String → State Story (Either String (Array String))
 replayUseWith oName1 oName2 = do
   eOid1 ← lookupOidByTitle oName1
   eOid2 ← lookupOidByTitle oName2
   case Tuple eOid1 eOid2 of
-    Tuple (Right oid1) (Right oid2) → Right <$> use oid1 (Just oid2)
+    Tuple (Right oid1) (Right oid2) → map Right $ useWith oid1 oid2
     Tuple (Left err)   _            → pure $ Left err
     Tuple _            (Left err  ) → pure $ Left err
 
-replayUse :: String → State Story (Either String (Array String))
+replayUse ∷ String → State Story (Either String (Array String))
 replayUse oName = do
   eOid ← lookupOidByTitle oName
   case eOid of
-    Right oid → Right <$> use oid Nothing
+    Right oid → useItself oid
     Left  err → pure $ Left err
 
 
-historiesP ::  Parser String History
+historiesP ∷  Parser String History
 historiesP = map L.toUnfoldable $ sepBy historyP (string "\n")
   where
-    upToEol :: Parser String String
+    upToEol ∷ Parser String String
     upToEol = map S.fromCharArray $ A.many (noneOf ['\n'])
-    g :: Parser String HistoryEntry
+    g ∷ Parser String HistoryEntry
     g  = string "go "      *> map HGo      upToEol
     t  = string "take "    *> map HTake    upToEol
     e  = string "examine " *> map HExamine upToEol
     tt = string "talk to " *> map HTalk    upToEol
     s  = string "say "     *> map HSay     upToEol
-    a :: Parser String String
+    a ∷ Parser String String
     a = (map (S.fromCharArray <<< L.toUnfoldable) (manyTill (noneOf ['\n']) (try $  (string " with ")
                                                                                 <|> (lookAhead $ string "\n"))))
-    b :: Parser String String
+    b ∷ Parser String String
     b =  map S.fromCharArray $ A.some (noneOf ['\n'])
-    c :: Parser String (Maybe String)
+    c ∷ Parser String (Maybe String)
     c = (b >>= pure <<< Just) <|> pure Nothing
     u  = string "use "     *> (HUse <$> a <*> c)
     historyP = try g <|> try t <|> try e <|> try u <|> try tt <|> try s
 
-replay' :: Tuple History (Either String (Array String))
+replay' ∷ Tuple History (Either String (Array String))
         → HistoryEntry
         → State Story (Tuple History (Either String (Array String)))
 replay' (Tuple hs e@(Right txts)) h = do
@@ -190,14 +185,14 @@ replay' (Tuple hs e) _ = pure $ Tuple hs e
 -- If it fails, it will still have updated the story as far as it could, and
 -- return the portion of history which was successfully applied, as well as an
 -- error message.
-replayAll :: String → State Story (Tuple History (Either String (Array String)))
+replayAll ∷ String → State Story (Tuple History (Either String (Array String)))
 replayAll ser =
   case deserialse ser of
     Right histories → foldM replay' (Tuple [] (Right [])) (A.reverse histories)
     Left  err       → pure $ Tuple [] (Left err)
 
 
-toText :: HistoryEntry → String
+toText ∷ HistoryEntry → String
 toText (HGo     t           ) = "go "      <> t
 toText (HTake   t           ) = "take "    <> t
 toText (HExamine t          ) = "examine " <> t
@@ -207,21 +202,21 @@ toText (HTalk   t           ) = "talk to " <> t
 toText (HSay    t           ) = "say "     <> t
 
 -- | Convert 'History' into 'String' representation
-serialise :: History → String
+serialise ∷ History → String
 serialise = A.intercalate "\n" <<< map toText
 
 -- | Convert 'String' representation back into 'History'
-deserialse :: String → Either String History
+deserialse ∷ String → Either String History
 deserialse s = case runParser s historiesP of
                  Left pe → Left $ show pe
                  Right h → Right h
 
 --------------------------------------------------------------------------------
 
-initStory :: String → State Story (Either (Tuple History String) (Tuple (Array String) (Array String)))
+initStory ∷ String → State Story (Either (Tuple History String) (Tuple (Array String) (Array String)))
 initStory path = do
-  s ← get
-  initTxt ← runAction s.init
+  story ← get
+  initTxt ← runAction $ story ^. sInit
   let initTxt' = if S.null path then initTxt else []
   res ← replayAll path
   trace ("replayAll returned: " <> show res) \_ → pure $ case res of

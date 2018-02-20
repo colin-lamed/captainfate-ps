@@ -29,6 +29,6 @@ spec = do
 -- import TextAd.Model.Core
 -- import TextAd.Interpreter.StoryBuilder (toStory)
 
-initStory :: StoryBuilder Unit → String → Either String (Tuple (Array String) (Array String))
+initStory ∷ StoryBuilder Unit → String → Either String (Tuple (Array String) (Array String))
 initStory story path =
   either (Left <<< snd) Right $ evalState (H.initStory path) (buildStory story)

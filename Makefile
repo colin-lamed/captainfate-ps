@@ -27,4 +27,7 @@ zip-src:
 
 
 run:
+	pulp run
+
+runweb:
 	firefox html/index.html
