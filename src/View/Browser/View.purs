@@ -25,9 +25,9 @@ import ReactDOM (render)
 import Motor.History as H
 import Motor.Interpreter.StoryInterpreter (buildStory)
 import Motor.Interpreter.ActionInterpreter (runAction)
-import Motor.Story (Action, DirHint(..), Oid, Rid, StoryBuilder)
-import Motor.Util (currentRoom, goto, listExits, takeItemS, the, toObject, toRoom, roomDesc, useItself, useWith)
-import Motor.Lens (pLocation, sInventory, sMaxScore, sPlayer, sSay, sScore, sTitle, (.~), (^.))
+import Motor.Story.Lens (sInventory, sMaxScore, sSay, sScore, getTitle, (.~), (^.))
+import Motor.Story.Types (Action, DirHint(..), Oid, Rid, StoryBuilder)
+import Motor.Util (currentRoom, goto, listExits, takeItemS, the, toObject, roomDesc, useItself, useWith)
 import View.Browser.History (readPath, writePath, updateHistory)
 import View.Browser.Types (AppState, Option(..), SS, addText, clearText, initOptions, resetOptions, runSS, setOptions)
 import View.Browser.Utils (getOffsetHeight)
@@ -98,7 +98,7 @@ onClickUseWith oid1 oid2 = do
   txt ← useWith oid1 oid2
   addText case txt of
             []  → ["Nothing happens."]
-            txt → txt
+            txt' → txt'
   resetOptions
   updateHistory $ H.addUse (obj1.title) (Just $ obj2.title)
   pure unit
@@ -135,7 +135,7 @@ sayAction atn = do
   if null sayOptions
     then do addText ["You have nothing to say."]
             resetOptions
-    else setOptions $ map (\(Tuple l atn) → Say l atn) sayOptions
+    else setOptions $ map (\(Tuple l atn') → Say l atn') sayOptions
   pure unit
 
 initState
@@ -190,8 +190,7 @@ mainContent ∷ ∀ props eff. AppState → ReactSpec props AppState ReactElemen
 mainContent state0 = do
   spec state0 \ctx → do
     {story, ui} ← readState ctx
-    let rid = story ^. (sPlayer <<< pLocation)
-        r   = evalState (toRoom rid) story
+    let r   = evalState currentRoom story
 
     let --renderRoom ∷ D.ReactElement
         renderRoom     = D.text r.title
@@ -261,7 +260,7 @@ mainContent state0 = do
             , P.role      "main"
             ]
             [ D.div [ P.className "page-header" ]
-                    [ D.h1' [ D.text (story ^. sTitle) ] ]
+                    [ D.h1' [ D.text (story ^. getTitle) ] ]
             , D.div [ P.className "row" ]
                     [ D.div [ P.className "panel panel-default" ]
                             [ D.div [ P.className "panel-heading" ]

@@ -2,45 +2,47 @@ module Motor.Interpreter.StoryInterpreter
   ( buildStory
   ) where
 
-import Prelude (Unit, discard, pure, unit, ($))
+import Prelude (Unit, discard, pure, unit, (<<<))
 import Control.Monad.Free (runFreeM)
-import Control.Monad.State (State, modify, execState)
+import Control.Monad.State (State, execState)
 import Control.Plus (empty)
 import Data.Exists (runExists)
 import Data.Map as M
 import Data.Maybe (Maybe(..))
-import Motor.Story (MkStateF(..), Rid(..), Sid(..), Story(..), StoryBuilder, StoryBuilderF(..))
+
 import Motor.Interpreter.RoomInterpreter (buildRoom)
 import Motor.Interpreter.ObjectInterpreter (buildObject)
-import Motor.Lens (sInit, sMaxScore, sObjects, sPlayer, sRooms, sStates, sTitle, (%~), (.~))
+import Motor.Story.Lens (sInit, sMaxScore, sObjects, sPlayer, sRooms, sStates, pInventory, setLocation, setTitle, (%=), (?=), (.=))
+import Motor.Story.Types (MkStateF(..), Sid(..), Story(..), StoryBuilder, StoryBuilderF(..))
 
 
 interpret ∷ ∀ next. StoryBuilderF (StoryBuilder next) → State Story (StoryBuilder next)
 interpret (SetSTitle title a) = do
-  modify $ sTitle .~ title
+  setTitle ?= title
   pure a
 interpret (MkPlayer os rid a) = do
-  modify $ sPlayer .~ { inventory: os, location: rid }
+  sPlayer <<< pInventory .= os
+  sPlayer <<< setLocation ?= rid
   pure a
 interpret (SetMaxScore i a) = do
-  modify $ sMaxScore .~ Just i
+  sMaxScore ?= i
   pure a
 interpret (MkRoom rid rb a) = do
   let room = buildRoom rb
-  modify $ sRooms %~ M.insert rid room
+  sRooms %= M.insert rid room
   pure a
 interpret (MkObject oid ob a) = do
   let object = buildObject ob
-  modify $ sObjects %~ M.insert oid object
+  sObjects %= M.insert oid object
   pure a
 interpret (SetSInit atn a) = do
-  modify $ sInit .~ atn
+  sInit .= atn
   pure a
 interpret (MkState key exists) = do
   let {dyn, a} = runExists (\(MkStateF {val, toDyn, next}) →
                              {dyn: toDyn val, a: next (Sid key)}
                            ) exists
-  modify $ sStates %~ M.insert key dyn
+  sStates %= M.insert key dyn
   pure a
 
 
@@ -48,8 +50,16 @@ interpret (MkState key exists) = do
 
 buildStory ∷ StoryBuilder Unit → Story
 buildStory sb = execState (runFreeM interpret sb) initialStory
-  where initialStory = Story { title   : "1"-- unsafeCrashWith "title - not set" (needs to be made lazy: Data.Lazy (defer, force)) -- TODO better yet, use Data.Record.Builder (can we prove final result has all expected fields?)
-                             , player  : { inventory: empty, location: Rid "madeup" } -- unsafeCrashWith "player - not set"
+  -- TODO title and player.location are required. Currently, lens will throw exception of not set on first read.
+  -- ideally want to not compile story if not set.
+  -- next best would be to throw exception after buildStory (e.g. convert temporary model (with Maybe) to Story)
+
+  -- Could not use Data.Record.Builder
+  -- e.g. interpret ∷ Writer (RB.Builder a b) (StoryBuilder next)
+  --   tell $ insert (SProxy :: SProxy "title") title
+  -- since Builder type changes with each insert
+  where initialStory = Story { title   : Nothing
+                             , player  : { inventory: empty, location: Nothing }
                              , rooms   : M.empty
                              , objects : M.empty
                              , states  : M.empty

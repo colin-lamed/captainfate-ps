@@ -7,7 +7,7 @@ import Control.Monad.Free (runFreeM)
 import Control.Monad.State (State, modify, execState)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
-import Motor.Story (NounType(..), Object, ObjectBuilder, ObjectBuilderF(..))
+import Motor.Story.Types (NounType(..), Object, ObjectBuilder, ObjectBuilderF(..))
 
 
 interpret ∷ ∀ next. ObjectBuilderF (ObjectBuilder next) → State Object (ObjectBuilder next)

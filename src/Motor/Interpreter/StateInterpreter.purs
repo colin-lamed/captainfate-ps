@@ -7,8 +7,8 @@ import Control.Monad.State (StateT, get)
 import Data.Exists (Exists, runExists)
 import Data.Maybe (Maybe(..))
 import Partial.Unsafe (unsafeCrashWith)
-import Motor.Story (GetStateF(..), Sid(..), Story)
-import Motor.Lens (at, sStates, (^.))
+import Motor.Story.Lens (at, sStates, (^.))
+import Motor.Story.Types (GetStateF(..), Sid(..), Story)
 
 
 interpretGetState ∷ ∀ next m. Monad m ⇒ Exists (GetStateF next) → StateT Story m next

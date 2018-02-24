@@ -10,8 +10,8 @@ import Control.Monad.Writer (Writer, tell, runWriter)
 import Data.Maybe.First (First(..))
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
-import Motor.Story (Action, Oid, Story, UseAction, UseActionF(..))
 import Motor.Interpreter.StateInterpreter (interpretGetState)
+import Motor.Story.Types (Action, Oid, Story, UseAction, UseActionF(..))
 
 
 interpret ∷ ∀ next. Oid → UseActionF (UseAction next) → StateT Story (Writer (First (Action Unit))) (UseAction next)

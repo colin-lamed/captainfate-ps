@@ -19,9 +19,9 @@ import Control.Monad.Reader.Class (class MonadAsk, ask)
 import Data.Either (either)
 import Data.Newtype (class Newtype, unwrap)
 import Data.Tuple (Tuple(..))
-import Motor.Story (Story)
 import LineReader (READLINE)
 import Node.ReadLine (Interface)
+import Motor.Story.Types (Story)
 
 
 newtype SS a = SS (ReaderT Interface

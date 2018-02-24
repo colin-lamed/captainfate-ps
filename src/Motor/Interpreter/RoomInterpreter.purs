@@ -6,7 +6,7 @@ import Prelude (Unit, discard, pure, unit)
 import Control.Monad.Free (runFreeM)
 import Control.Monad.State (State, modify, execState)
 import Control.Plus (empty)
-import Motor.Story (Room, RoomBuilder, RoomBuilderF(..))
+import Motor.Story.Types (Room, RoomBuilder, RoomBuilderF(..))
 
 
 interpret ∷ ∀ next. RoomBuilderF (RoomBuilder next) → State Room (RoomBuilder next)

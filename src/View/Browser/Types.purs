@@ -19,8 +19,8 @@ import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import DOM (DOM())
 import React (ReactProps, ReactRefs, ReactState, ReactThis, ReadOnly, ReadWrite, Read, Write, readState, writeState)
-import Motor.Lens (sInventory, (^.))
-import Motor.Story (Action, Oid, Story)
+import Motor.Story.Lens (sInventory, (^.))
+import Motor.Story.Types (Action, Oid, Story)
 import Motor.Util (currentRoom, toObject)
 
 

@@ -3,21 +3,20 @@ module Motor.Interpreter.ActionInterpreter
   , runAction'
   ) where
 
-import Prelude (class Semigroup, Unit, bind, discard, pure, unit, ($), (+), (/=), (<<<), (||))
+import Prelude (class Semigroup, Unit, bind, discard, pure, unit, ($), (/=), (<<<), (||))
 import Control.Monad.Free (runFreeM)
-import Control.Monad.State (StateT, modify, execStateT, get, put, runStateT)
+import Control.Monad.State (StateT, execStateT, get, put, runStateT)
 import Control.Monad.State.Class (class MonadState)
 import Control.Monad.Writer (Writer, tell, runWriter)
 import Data.Exists (runExists)
 import Data.Map as M
 import Data.List as L
-import Data.Array ((:))
 import Data.Array as A
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
 import Motor.Interpreter.StateInterpreter (interpretGetState)
-import Motor.Lens (_Just, at, pLocation, rItems, sInventory, sPlayer, sRooms, sSay, sScore, sStates, to, (%~), (^.))
-import Motor.Story (Action, ActionSyntax(..), Oid, Rid, SetStateF(..), Sid(..), Story)
+import Motor.Story.Lens (use, _Just, at, rItems, sInventory, sLocation, sRooms, sSay, sScore, sStates, to, (%=), (+=), (^.), (<>=))
+import Motor.Story.Types (Action, ActionSyntax(..), Oid, Rid, SetStateF(..), Sid(..), Story)
 import Data.Newtype (class Newtype, unwrap)
 import Data.Monoid (class Monoid)
 
@@ -27,49 +26,46 @@ roomOf' story oid = L.head $ M.keys $ M.filter (\room → oid `L.elem` room.item
 
 interpret ∷ ∀ next. ActionSyntax (Action next) → StateT Story (Writer (Array String)) (Action next)
 interpret (PrintLn str a) = do
-  tell [ str ]
+  tell [str]
   pure a
 interpret (AddItem rid oid a) = do
-  modify $ (sRooms <<< at rid <<< _Just <<< rItems) %~ (oid : _)
+  sRooms <<< at rid <<< _Just <<< rItems <>= [oid]
   pure a
 interpret (TakeItem oid a) = do
-  modify $ sInventory %~ (oid : _)
+  sInventory <>= [oid]
   pure a
 interpret (DestroyItem oid a) = do
-  modify $ sInventory %~ A.filter (_ /= oid)
+  sInventory %= A.filter (_ /= oid)
   story ← get
   case roomOf' story oid of
     Nothing  → pure unit
-    Just rid → modify $ (sRooms <<< at rid <<< _Just <<< rItems) %~ A.filter (_ /= oid)
+    Just rid → sRooms <<< at rid <<< _Just <<< rItems %= A.filter (_ /= oid)
   pure a
 interpret (IncScore i a) = do
-  modify $ sScore %~ (_ + i)
+  sScore += i
   pure a
 -- TODO avoid storying in model? make [(Say,Atn)] the result?
 interpret (Say l atn a) = do
-  modify $ sSay %~ (_ `A.snoc` (Tuple l atn))
+  sSay %= (_ `A.snoc` (Tuple l atn))
   pure a
 interpret (PlayerHas oid a) = do
-  story ← get
-  let has = unwrap $ story ^. (sInventory <<< to (Any <<< A.elem oid))
-  pure (a has)
+  has ← use $ sInventory <<< to (Any <<< A.elem oid)
+  pure (a $ unwrap has)
 interpret (RoomHas rid oid a) = do
-  story ← get
-  let has = unwrap $ story ^. (sRooms <<< at rid <<< _Just <<< rItems <<< to (Any <<< A.elem oid))
-  pure (a has)
+  has ← use $ sRooms <<< at rid <<< _Just <<< rItems <<< to (Any <<< A.elem oid)
+  pure (a $ unwrap has)
 interpret (RoomOf oid a) = do
   story ← get
-  pure (a (roomOf' story oid))
+  pure (a $ roomOf' story oid)
 interpret (CurrentRoom a) = do
-  story ← get
-  pure (a (story ^. (sPlayer <<< pLocation)))
+  location ← use sLocation
+  pure (a location)
 interpret (GetState exists) = interpretGetState exists
 interpret (SetState exists) = do
-  story ← get
   let {sid, dyn, a} = runExists (\(SetStateF { sid: (Sid sid), val, toDyn, next }) →
                        {sid: sid, dyn: toDyn val, a: next}
                      ) exists
-  modify $ sStates %~ M.insert sid dyn
+  sStates %= M.insert sid dyn
   pure a
 
 newtype Any = Any Boolean

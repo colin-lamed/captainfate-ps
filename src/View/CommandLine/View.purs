@@ -18,9 +18,9 @@ import Data.Tuple (Tuple(..))
 import LineReader (READLINE, createConsoleInterface, question, noCompletion)
 import Motor.Interpreter.StoryInterpreter (buildStory)
 import Motor.Interpreter.ActionInterpreter (runAction)
-import Motor.Story (Action, Object, Oid, Rid, Room, StoryBuilder)
-import Motor.Util (currentRoom, goto, listItems, listExits, takeItemS, the, toObject, toRoom, useWith, useItself)
-import Motor.Lens (pLocation, sInit, sInventory, sPlayer, sSay, sTitle, (.~), (^.))
+import Motor.Story.Types (Action, Object, Oid, Rid, Room, StoryBuilder)
+import Motor.Story.Lens (sInit, sInventory, sSay, getTitle, (.~), (^.))
+import Motor.Util (currentRoom, goto, listItems, listExits, takeItemS, the, toObject, useWith, useItself)
 import View.CommandLine.Types (SS, runSS)
 
 
@@ -28,10 +28,8 @@ import View.CommandLine.Types (SS, runSS)
 view ∷ StoryBuilder Unit → Eff (console ∷ CONSOLE, readline ∷ READLINE, exception ∷ EXCEPTION) Unit
 view sb = do
   let story = buildStory sb
-      title = story ^.sTitle
-      rId   = story ^. (sPlayer <<< pLocation)
   EC.log "----------"
-  EC.log title
+  EC.log (story ^.getTitle)
   EC.log "----------"
 
   interface ← createConsoleInterface noCompletion
@@ -39,7 +37,7 @@ view sb = do
   let loop1 ∷ SS Unit
       loop1 = do
                 initStory -- this assumes we're starting from the beginning. If we replay history here, then this will be handled.
-                displayRoom rId
+                displayRoom
                 loop
 
   runSS story interface loop1
@@ -63,8 +61,7 @@ loop = do
   room  ← currentRoom
   exits ← listExits room
   displayInRoom room
-  options ← initOptions
-  selectOption options
+  initOptions >>= selectOption
   loop
 
 
@@ -116,9 +113,9 @@ initOptions = do
        <> (if A.null exits         then [] else map (\e → Go e.label e.rid) exits)
 
 
-displayRoom ∷ Rid → SS Unit
-displayRoom rid = do
-  room ← toRoom rid
+displayRoom ∷ SS Unit
+displayRoom = do
+  room ← currentRoom
   putStrLn $ "\n" <> room.title <> "\n"
   descr ← runAction room.descr
   putStrLns descr
@@ -172,12 +169,11 @@ selectOption options = do
 onSelectGo ∷ Action (Maybe Rid) → SS Unit
 onSelectGo roomAction = do
   eRid ← goto roomAction
-  either putStrLns displayRoom eRid
+  either putStrLns (\_ -> displayRoom) eRid
 
 onSelectInventory ∷ Array Oid → SS Unit
 onSelectInventory items = do
-  story ← get
-  options ←  traverse (withObj \(Tuple oid obj) → pure $ InventoryO obj.title oid) items
+  options ← traverse (withObj \(Tuple oid obj) → pure $ InventoryO obj.title oid) items
   selectOption options
 
 onSelectInventoryO ∷ Oid → SS Unit
@@ -187,10 +183,9 @@ onSelectInventoryO oid = do
         case obj.use of
           Left  _ → ""
           Right _ → " with "
-  let options = [ ExamineO ("Examine " <> obj.title          ) oid
-                , UseO     ("Use "     <> obj.title <> suffix) oid
-                ]
-  selectOption options
+  selectOption [ ExamineO ("Examine " <> obj.title          ) oid
+               , UseO     ("Use "     <> obj.title <> suffix) oid
+               ]
 
 onSelectTake ∷ Array Oid → SS Unit
 onSelectTake items = do

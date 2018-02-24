@@ -1,5 +1,6 @@
-module Motor.Lens
-  ( sTitle
+module Motor.Story.Lens
+  ( getTitle
+  , setTitle
   , sPlayer
   , sRooms
   , sObjects
@@ -9,7 +10,8 @@ module Motor.Lens
   , sSay
   , sInit
   , pInventory
-  , pLocation
+  , getLocation
+  , setLocation
   , eLabel
   , eDirHint
   , eRid
@@ -26,6 +28,7 @@ module Motor.Lens
   , oTalk
   -- composites
   , sInventory
+  , sLocation
   -- reexports
   , module Data.Lens.At
   , module Data.Lens
@@ -34,19 +37,22 @@ module Motor.Lens
 import Prelude (Unit, (<<<))
 import Data.Dynamic (Dynamic)
 import Data.Either (Either)
-import Data.Map as M
-import Data.Maybe (Maybe)
-import Data.Tuple (Tuple)
-import Motor.Story (Action, DirHint, Exit, ExitsBuilder, NounType, Object, Oid, Player, Rid, Room, Story(..), UseAction)
-import Data.Lens (Lens', lens, (^.), (.~), (%~), _Just, to)
+import Data.Lens
 import Data.Lens.At (at)
-import Data.Newtype (over, unwrap)
+import Data.Map as M
+import Data.Maybe (Maybe(..))
+import Data.Newtype (wrap, unwrap)
+import Data.Newtype as NT
+import Data.Tuple (Tuple)
+import Partial.Unsafe (unsafeCrashWith)
+
+import Motor.Story.Types (Action, DirHint, Exit, ExitsBuilder, NounType, Object, Oid, Player, Rid, Room, Story(..), UseAction)
 
 
 -- * Auto derived lenses?
 -- E.g. https://github.com/paf31/purescript-derive-lenses
 --   purs compile src/**/*.purs bower_components/purescript-*/src/**/*.purs --dump-corefn
---   && pulp run -- -i output/Motor.Story/corefn.json -o test-files/Output.purs
+--   && pulp run -- -i output/Motor.Types/corefn.json -o test-files/Output.purs
 --
 --   pulp run should be running purescript-derive-lenses (`-m Main.purs` is ambiguous)
 --   however, the parameters are not being passed through to the module, but to purs
@@ -55,39 +61,58 @@ import Data.Newtype (over, unwrap)
 
 
 -- manual lens creation..
-sTitle ∷ Lens' Story String
--- sTitle = lens (\s → (unwrap s).title) (\s title → wrap ((unwrap s) { title = title }))
-sTitle = lens (\s → (unwrap s).title) (\s title → over Story (_ { title = title }) s)
+
+getTitle ∷ Getter' Story String
+getTitle = to \s →
+            -- not using maybe since eagerly evaluates the default value
+            case (unwrap s).title of
+              Just a  → a
+              Nothing → unsafeCrashWith "title - not set"
+
+-- | Asymmetric setter from getter since getter does not expose laziness.
+--   the setter must, since it will read the current value to transform it.
+setTitle ∷ Setter' Story (Maybe String)
+setTitle = \f story -> let s = unwrap story
+                       in wrap (s { title = f (s.title) })
 
 sPlayer ∷ Lens' Story Player
-sPlayer = lens (\s → (unwrap s).player) (\s player → over Story (_ { player = player }) s)
+sPlayer = lens (\s → (unwrap s).player) (\s player → NT.over Story (_ { player = player }) s)
 
 sRooms ∷ Lens' Story (M.Map Rid Room)
-sRooms = lens (\s → (unwrap s).rooms) (\s rooms → over Story (_ { rooms = rooms }) s)
+sRooms = lens (\s → (unwrap s).rooms) (\s rooms → NT.over Story (_ { rooms = rooms }) s)
 
 sObjects ∷ Lens' Story (M.Map Oid Object)
-sObjects = lens (\s → (unwrap s).objects) (\s objects → over Story (_ { objects = objects }) s)
+sObjects = lens (\s → (unwrap s).objects) (\s objects → NT.over Story (_ { objects = objects }) s)
 
 sStates ∷ Lens' Story (M.Map String Dynamic)
-sStates = lens (\s → (unwrap s).states) (\s states → over Story (_ { states = states }) s)
+sStates = lens (\s → (unwrap s).states) (\s states → NT.over Story (_ { states = states }) s)
 
 sScore ∷ Lens' Story Int
-sScore = lens (\s → (unwrap s).score) (\s score → over Story (_ { score = score }) s)
+sScore = lens (\s → (unwrap s).score) (\s score → NT.over Story (_ { score = score }) s)
 
 sMaxScore ∷ Lens' Story (Maybe Int)
-sMaxScore = lens (\s → (unwrap s).maxScore) (\s maxScore → over Story (_ { maxScore = maxScore }) s)
+sMaxScore = lens (\s → (unwrap s).maxScore) (\s maxScore → NT.over Story (_ { maxScore = maxScore }) s)
 
 sSay ∷ Lens' Story (Array (Tuple String (Action Unit)))
-sSay = lens (\s → (unwrap s).say) (\s say → over Story (_ { say = say }) s)
+sSay = lens (\s → (unwrap s).say) (\s say → NT.over Story (_ { say = say }) s)
 
 sInit ∷ Lens' Story (Action Unit)
-sInit = lens (\s → (unwrap s).init) (\s init → over Story (_ { init = init }) s)
+sInit = lens (\s → (unwrap s).init) (\s init → NT.over Story (_ { init = init }) s)
 
 pInventory ∷ Lens' Player (Array Oid)
 pInventory = lens (_.inventory) (\p inventory → p { inventory = inventory })
 
-pLocation ∷ Lens' Player Rid
-pLocation = lens (_.location) (\p location → p { location = location })
+getLocation∷ Getter' Player Rid
+getLocation = to \player →
+                -- not using maybe since eagerly evaluates the default value
+                case player.location of
+                  Just a  → a
+                  Nothing → unsafeCrashWith "location - not set"
+
+-- | Asymmetric setter from getter since getter does not expose laziness.
+--   the setter must, since it will read the current value to transform it.
+setLocation ∷ Setter' Player (Maybe Rid)
+setLocation = \f player -> player { location = f player.location }
 
 eLabel ∷ Lens' Exit String
 eLabel = lens (_.label) (\e label → e { label = label })
@@ -137,3 +162,6 @@ oTalk = lens (_.talk) (\o talk → o { talk = talk })
 
 sInventory ∷ Lens' Story (Array Oid)
 sInventory = sPlayer <<< pInventory
+
+sLocation ∷ Getter' Story Rid
+sLocation = sPlayer <<< getLocation

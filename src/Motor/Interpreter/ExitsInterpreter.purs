@@ -8,8 +8,8 @@ import Control.Monad.State (StateT, execStateT, get, put)
 import Control.Monad.State.Class (class MonadState)
 import Control.Monad.Writer (Writer, tell, runWriter)
 import Data.Tuple (Tuple(..))
-import Motor.Story (Exit, ExitsBuilder, ExitsBuilderF(..), Story)
 import Motor.Interpreter.StateInterpreter (interpretGetState)
+import Motor.Story.Types (Exit, ExitsBuilder, ExitsBuilderF(..), Story)
 
 
 interpret ∷ ∀ next. ExitsBuilderF (ExitsBuilder next) → StateT Story (Writer (Array Exit)) (ExitsBuilder next)

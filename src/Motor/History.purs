@@ -30,10 +30,10 @@ import Data.List as L
 import Data.String as S
 import Data.Tuple (Tuple(..))
 import Debug.Trace (trace)
-import Motor.Story (Story)
 import Motor.Interpreter.ActionInterpreter (runAction)
+import Motor.Story.Lens (sInit, sSay, (.~), (^.))
+import Motor.Story.Types (Story)
 import Motor.Util (goto, lookupOidByTitle, lookupRoomAction, lookupSay, useItself, useWith, takeItemS, toObject, toRoom)
-import Motor.Lens (sInit, sSay, (.~), (^.))
 
 
 data HistoryEntry
