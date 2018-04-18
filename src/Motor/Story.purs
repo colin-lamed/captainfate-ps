@@ -41,7 +41,7 @@ import Motor.Story.Dsl
   )
 import Motor.Story.Types
   ( Action
-  , ActionSyntax(..)
+  , ActionF(..)
   , DirHint(..)
   , Exit
   , ExitsBuilder

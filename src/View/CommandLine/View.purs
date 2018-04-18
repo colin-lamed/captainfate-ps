@@ -169,7 +169,7 @@ selectOption options = do
 onSelectGo ∷ Action (Maybe Rid) → SS Unit
 onSelectGo roomAction = do
   eRid ← goto roomAction
-  either putStrLns (\_ -> displayRoom) eRid
+  either putStrLns (\_ → displayRoom) eRid
 
 onSelectInventory ∷ Array Oid → SS Unit
 onSelectInventory items = do

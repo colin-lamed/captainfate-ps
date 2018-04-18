@@ -2,25 +2,53 @@ module Motor.Interpreter.ExitsInterpreter
   ( buildExits
   ) where
 
-import Prelude (Unit, bind, discard, pure, ($))
-import Control.Monad.Free (runFreeM)
-import Control.Monad.State (StateT, execStateT, get, put)
-import Control.Monad.State.Class (class MonadState)
-import Control.Monad.Writer (Writer, tell, runWriter)
+import Prelude
+import Control.Comonad.Store (Store, store)
+import Control.Monad.State (class MonadState, state)
+import Control.Comonad.Traced (class ComonadTraced, TracedT(TracedT))
+import Data.Newtype (unwrap)
 import Data.Tuple (Tuple(..))
-import Motor.Interpreter.StateInterpreter (interpretGetState)
-import Motor.Story.Types (Exit, ExitsBuilder, ExitsBuilderF(..), Story)
+import Motor.Story.Lens
+import Proact.Comonad.Trans.Cofree (CofreeT, coiterT)
+
+import Coproduct ((*:*))
+import Motor.Story.Types
+import Motor.Interpreter.StateInterpreter(coGetState)
+import Pairing (pairEffect)
+import ProductUtils (tell)
 
 
-interpret ∷ ∀ next. ExitsBuilderF (ExitsBuilder next) → StateT Story (Writer (Array Exit)) (ExitsBuilder next)
-interpret (AddExit e a) = do
-  tell [e]
-  pure a
-interpret (GetState2 exists) = interpretGetState exists
+coAddExit ∷ ∀ w a
+          . ComonadTraced (Array Exit) w
+          ⇒ w a
+          → CoAddExitF (w a)
+coAddExit w = CoAddExit $ \exit →
+  tell [exit] w
 
-buildExits ∷ ∀ m. MonadState Story m ⇒ ExitsBuilder Unit → m (Array Exit)
-buildExits builder = do
-  story ← get
-  let Tuple a w = runWriter $ execStateT (runFreeM interpret builder) story
-  put a
-  pure w
+
+type Stack                     = TracedT (Array Exit) (Store Story)
+type ExitsBuilderInterpreter a = CofreeT CoExitsBuilderF Stack a
+
+mkCofree ∷ ∀ a
+          . Stack a
+         → ExitsBuilderInterpreter a
+mkCofree =
+  coiterT (coAddExit *:* coGetState)
+
+interpret ∷ ∀ a r c
+          . (a → r → c)
+          → ExitsBuilderInterpreter a
+          → ExitsBuilder r
+          → c
+interpret f interpreter =
+    unwrap <<< pairEffect f interpreter
+
+buildExits ∷ ∀ m r
+           .  MonadState Story m ⇒ ExitsBuilder r → m (Array Exit)
+buildExits exitsBuilder =
+  state $ \s →
+    let start                   ∷ Stack (Tuple (Array Exit) Story)
+        start                   = TracedT $ store (\s' es → Tuple es s') s
+        exitsBuilderInterpreter = mkCofree start
+        Tuple exits _ = interpret (\l _ → l) exitsBuilderInterpreter exitsBuilder
+    in Tuple exits s

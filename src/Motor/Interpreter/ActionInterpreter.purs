@@ -3,91 +3,177 @@ module Motor.Interpreter.ActionInterpreter
   , runAction'
   ) where
 
-import Prelude (class Semigroup, Unit, bind, discard, pure, unit, ($), (/=), (<<<), (||))
-import Control.Monad.Free (runFreeM)
-import Control.Monad.State (StateT, execStateT, get, put, runStateT)
-import Control.Monad.State.Class (class MonadState)
-import Control.Monad.Writer (Writer, tell, runWriter)
-import Data.Exists (runExists)
-import Data.Map as M
+import Prelude
+import Control.Monad.State (class MonadState, state)
+import Control.Comonad.Store (class ComonadStore, Store, pos, seeks, store)
+import Control.Comonad.Traced (class ComonadTraced, TracedT(TracedT))
+import Data.Array ((:), filter, elem)
 import Data.List as L
-import Data.Array as A
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe, maybe)
+import Data.Map as M
+import Data.Newtype (unwrap)
 import Data.Tuple (Tuple(..))
-import Motor.Interpreter.StateInterpreter (interpretGetState)
-import Motor.Story.Lens (use, _Just, at, rItems, sInventory, sLocation, sRooms, sSay, sScore, sStates, to, (%=), (+=), (^.), (<>=))
-import Motor.Story.Types (Action, ActionSyntax(..), Oid, Rid, SetStateF(..), Sid(..), Story)
-import Data.Newtype (class Newtype, unwrap)
-import Data.Monoid (class Monoid)
+import Proact.Comonad.Trans.Cofree (CofreeT, coiterT)
 
+import Coproduct ((*:*))
+import Motor.Story.Lens
+import Motor.Story.Types
+import Motor.Interpreter.StateInterpreter (coGetState, coSetState)
+import Pairing (pairEffect)
+import ProductUtils (tell)
 
-roomOf' ∷ Story → Oid → Maybe Rid
-roomOf' story oid = L.head $ M.keys $ M.filter (\room → oid `L.elem` room.items) (story ^. sRooms)
+coPrintLn ∷ ∀ w a
+          . ComonadTraced (Array String) w
+          ⇒ w a
+          → CoPrintLnF (w a)
+coPrintLn w =
+  CoPrintLn $ \txt →
+    tell [txt] w
 
-interpret ∷ ∀ next. ActionSyntax (Action next) → StateT Story (Writer (Array String)) (Action next)
-interpret (PrintLn str a) = do
-  tell [str]
-  pure a
-interpret (AddItem rid oid a) = do
-  sRooms <<< at rid <<< _Just <<< rItems <>= [oid]
-  pure a
-interpret (TakeItem oid a) = do
-  sInventory <>= [oid]
-  pure a
-interpret (DestroyItem oid a) = do
-  sInventory %= A.filter (_ /= oid)
-  story ← get
-  case roomOf' story oid of
-    Nothing  → pure unit
-    Just rid → sRooms <<< at rid <<< _Just <<< rItems %= A.filter (_ /= oid)
-  pure a
-interpret (IncScore i a) = do
-  sScore += i
-  pure a
+coAddItem ∷ ∀ w a
+          . ComonadStore Story w
+          ⇒ w a
+          → CoAddItemF (w a)
+coAddItem w =
+    CoAddItem $ \rid oid →
+      seeks (addItem oid rid) w
+  where
+    addItem oid rid = (sRooms <<< at rid <<< _Just <<< rItems) <>~ [oid]
+
+coTakeItem ∷ ∀ w a
+           .  ComonadStore Story w
+           ⇒ w a
+           → CoTakeItemF (w a)
+coTakeItem w =
+    CoTakeItem $ \oid →
+      seeks (takeItem oid) w
+  where
+    takeItem oid = sInventory %~ (oid : _)
+
+coDestroyItem ∷ ∀ w a
+              . ComonadStore Story w
+              ⇒ w a
+              → CoDestroyItemF (w a)
+coDestroyItem w =
+    CoDestroyItem $ \oid →
+      seeks (remove oid) w
+  where remove oid s = maybe (removeFromInv oid s) (flip (removeFromRoom oid) s) $ roomOf oid s
+        removeFromRoom oid rid = (sRooms <<< at rid <<< _Just <<< rItems) %~ (filter (_ /= oid))
+        removeFromInv  oid     = sInventory                               %~ (filter (_ /= oid))
+
+coIncScore ∷ ∀ w a
+           . ComonadStore Story w
+           ⇒ w a
+           → CoIncScoreF (w a)
+coIncScore w =
+  CoIncScore $ \i →
+    seeks (sScore %~ (_ + i)) w
+
 -- TODO avoid storying in model? make [(Say,Atn)] the result?
-interpret (Say l atn a) = do
-  sSay %= (_ `A.snoc` (Tuple l atn))
-  pure a
-interpret (PlayerHas oid a) = do
-  has ← use $ sInventory <<< to (Any <<< A.elem oid)
-  pure (a $ unwrap has)
-interpret (RoomHas rid oid a) = do
-  has ← use $ sRooms <<< at rid <<< _Just <<< rItems <<< to (Any <<< A.elem oid)
-  pure (a $ unwrap has)
-interpret (RoomOf oid a) = do
-  story ← get
-  pure (a $ roomOf' story oid)
-interpret (CurrentRoom a) = do
-  location ← use sLocation
-  pure (a location)
-interpret (GetState exists) = interpretGetState exists
-interpret (SetState exists) = do
-  let {sid, dyn, a} = runExists (\(SetStateF { sid: (Sid sid), val, toDyn, next }) →
-                       {sid: sid, dyn: toDyn val, a: next}
-                     ) exists
-  sStates %= M.insert sid dyn
-  pure a
+coSay ∷ ∀ w a
+      . ComonadStore Story w
+      ⇒ w a
+      → CoSayF (w a)
+coSay w =
+    CoSay $ \say atn →
+      seeks (addSay say atn) w
+  where
+    addSay say atn = sSay %~ (_ <> [Tuple say atn])
 
-newtype Any = Any Boolean
+coPlayerHas ∷ ∀ w a
+            . ComonadStore Story w
+            ⇒ w a
+            → CoPlayerHasF (w a)
+coPlayerHas w =
+    CoPlayerHas $ \oid →
+      Tuple (has oid $ pos w) w
+  where
+    has oid = (oid `elem` _) <<< (\s → s ^. sInventory)
 
-instance semigroupAny ∷ Semigroup Any where
-  append (Any x) (Any y) = Any (x || y)
+coRoomHas ∷ ∀ w a
+          . ComonadStore Story w
+          ⇒ w a
+          → CoRoomHasF (w a)
+coRoomHas w =
+    CoRoomHas $ \rid oid →
+      Tuple (has rid oid $ pos w) w
+  where
+    has rid oid = (oid `elem` _) <<< (\s → s ^. sRooms <<< at rid <<< _Just <<< rItems)
 
-instance monoidAny ∷ Monoid Any where
-  mempty = Any false
+roomOf ∷ Oid → Story → Maybe Rid
+roomOf oid s =
+    L.head rids
+  where
+    rids = M.keys $ M.filter ((oid `elem` _) <<< (_ ^. rItems)) $ s ^. sRooms
 
-derive instance newtypeAny ∷ Newtype Any _
+coRoomOf ∷ ∀ w a
+         . ComonadStore Story w
+         ⇒ w a
+         → CoRoomOfF (w a)
+coRoomOf w =
+  CoRoomOf $ \oid →
+    Tuple (roomOf oid $ pos w) w
 
-runAction ∷ ∀ m. MonadState Story m ⇒ Action Unit → m (Array String)
-runAction action = do
-  story ← get
-  let Tuple s w = runWriter $ execStateT (runFreeM interpret action) story
-  put s
-  pure w
+currentRoom ∷ Story → Rid
+currentRoom s =
+  s ^. sLocation
 
-runAction' ∷ ∀ m r. MonadState Story m ⇒ Action r → m (Tuple (Array String) r)
-runAction' action = do
-  story ← get
-  let Tuple (Tuple r story') txt = runWriter $ runStateT (runFreeM interpret action) story
-  put story'
-  pure $ Tuple txt r
+coCurrentRoom ∷ ∀ w a
+              . ComonadStore Story w
+              ⇒ w a
+              → CoCurrentRoomF (w a)
+coCurrentRoom w =
+  CoCurrentRoom $
+    Tuple (currentRoom $ pos w) w
+
+
+type Stack               = TracedT (Array String) (Store Story)
+type ActionInterpreter a = CofreeT CoActionF Stack a
+
+mkCofree ∷ ∀ a
+         . Stack a
+         → ActionInterpreter a
+mkCofree =
+  coiterT (   coPrintLn
+          *:* coAddItem
+          *:* coTakeItem
+          *:* coDestroyItem
+          *:* coIncScore
+          *:* coSay
+          *:* coPlayerHas
+          *:* coRoomHas
+          *:* coRoomOf
+          *:* coCurrentRoom
+          *:* coGetState
+          *:* coSetState
+          )
+
+interpret ∷ ∀ a r c
+          . (a → r → c)
+          → ActionInterpreter a
+          → Action r
+          → c
+interpret f interpreter =
+    unwrap <<< pairEffect f interpreter
+
+
+runAction ∷ ∀ m r
+          . MonadState Story m
+          ⇒ Action r → m (Array String)
+runAction action =
+  state $ \s →
+    let start             ∷ Stack (Tuple (Array String) Story)
+        start             = TracedT $ store (\s' ts → Tuple ts s') s
+        actionInterpreter = mkCofree start
+    in interpret (\l _ → l) actionInterpreter action
+
+runAction' ∷ ∀ m r
+           . MonadState Story m
+           ⇒ Action r → m (Tuple (Array String) r)
+runAction' action =
+  state $ \s →
+    let start             ∷ Stack (Tuple (Array String) Story)
+        start             = TracedT $ store (\s' ts → Tuple ts s') s
+        actionInterpreter = mkCofree start
+        Tuple (Tuple txts s') r = interpret (\l r → Tuple l r) actionInterpreter action
+    in Tuple (Tuple txts r) s'

@@ -72,7 +72,7 @@ getTitle = to \s →
 -- | Asymmetric setter from getter since getter does not expose laziness.
 --   the setter must, since it will read the current value to transform it.
 setTitle ∷ Setter' Story (Maybe String)
-setTitle = \f story -> let s = unwrap story
+setTitle = \f story → let s = unwrap story
                        in wrap (s { title = f (s.title) })
 
 sPlayer ∷ Lens' Story Player
@@ -112,7 +112,7 @@ getLocation = to \player →
 -- | Asymmetric setter from getter since getter does not expose laziness.
 --   the setter must, since it will read the current value to transform it.
 setLocation ∷ Setter' Player (Maybe Rid)
-setLocation = \f player -> player { location = f player.location }
+setLocation = \f player → player { location = f player.location }
 
 eLabel ∷ Lens' Exit String
 eLabel = lens (_.label) (\e label → e { label = label })
