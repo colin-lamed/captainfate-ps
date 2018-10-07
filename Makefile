@@ -3,20 +3,20 @@ all: build
 setup:
 	set -e
 	npm install
-	bower install
+	npm run bower install
 
 build: setup
-	npm run -s build
+	npm run build
 
 test: setup
-	npm run -s test
+	npm run test
 
 # since `test` is also a directory, it will not be built without this
 # (or `make -B test`):
 .PHONY: test
 
 clean:
-	npm run -s clean
+	npm run clean
 
 zip-src:
 	rm -f captainfate-ps.zip
