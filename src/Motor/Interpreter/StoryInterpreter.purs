@@ -3,75 +3,117 @@ module Motor.Interpreter.StoryInterpreter
   ) where
 
 import Prelude
+import Control.Comonad.Cofree.Trans (CofreeT, coiterT)
 import Control.Comonad.Store (class ComonadStore, Store, store, seeks)
 import Control.Plus (empty)
-import Data.Maybe (Maybe(..))
-import Data.Newtype (unwrap)
+import Data.Exists (Exists, mkExists)
 import Data.Map as M
-import Proact.Comonad.Trans.Cofree (CofreeT, coiterT)
+import Data.Functor.Coproduct (Coproduct(..))
+import Data.Functor.Pairing (type (⋈))
+import Data.Functor.Pairing.PairEffect (pairEffect)
+import Data.Functor.Product (Product(..))
+import Data.Functor.Product.Infix ((*:*), (>:<))
+import Data.Map as M
+import Data.Maybe (Maybe(..), fromMaybe')
+import Data.Newtype (unwrap)
+import Data.Tuple (Tuple(..))
+import Foreign (Foreign, unsafeToForeign)
+import Partial.Unsafe (unsafeCrashWith)
+import Record (merge)
 
-import Coproduct ((*:*))
 import Motor.Story.Lens
 import Motor.Story.Types
 import Motor.Interpreter.RoomInterpreter (buildRoom)
 import Motor.Interpreter.ObjectInterpreter (buildObject)
-import Motor.Interpreter.StateInterpreter (coMkState)
-import Pairing (pairEffect)
 
 
-coSetSTitle ∷ ∀ w a
-            . ComonadStore Story w
-            ⇒ w a
-            → CoSetSTitleF (w a)
+
+coSetSTitle
+  ∷ ∀ w a
+  . ComonadStore TempStory w
+  ⇒ w a
+  → CoSetSTitleF (w a)
 coSetSTitle w = CoSetSTitle $ \title →
-  seeks (setTitle ?~ title) w
+  seeks (_ { title = Just title }) w
 
-coMkPlayer ∷ ∀ w a
-           . ComonadStore Story w
-           ⇒ w a
-           → CoMkPlayerF (w a)
+coMkPlayer
+  ∷ ∀ w a
+  . ComonadStore TempStory w
+  ⇒ w a
+  → CoMkPlayerF (w a)
 coMkPlayer w = CoMkPlayer $ \inventory location →
-  seeks (sPlayer .~ { inventory : inventory
-                    , location  : Just location
-                    }) w
+  seeks (_ { player = Just { inventory : inventory
+                           , location  : location
+                           }
+           }) w
 
-coMkObject ∷ ∀ w a
-           . ComonadStore Story w
-           ⇒ w a
-           → CoMkObjectF (w a)
+coMkObject
+  ∷ ∀ w a
+  . ComonadStore TempStory w
+  ⇒ w a
+  → CoMkObjectF (w a)
 coMkObject w = CoMkObject $ \oid ob →
   let obj = buildObject ob
-  in seeks (sObjects %~ (M.insert oid obj)) w
+  in seeks (\s -> s { objects = M.insert oid obj s.objects } ) w
 
-coMkRoom ∷ ∀ w a
-         . ComonadStore Story w
-         ⇒ w a
-         → CoMkRoomF (w a)
+coMkRoom
+  ∷ ∀ w a
+  . ComonadStore TempStory w
+  ⇒ w a
+  → CoMkRoomF (w a)
 coMkRoom w = CoMkRoom $ \rid rb →
   let room = buildRoom rb
-  in seeks (sRooms %~ (M.insert rid room)) w
+  in seeks (\s -> s { rooms = M.insert rid room s.rooms }) w
 
-coSetSInit ∷ ∀ w a
-           . ComonadStore Story w
-           ⇒ w a
-           → CoSetSInitF (w a)
+coSetSInit
+  ∷ ∀ w a
+  . ComonadStore TempStory w
+  ⇒ w a
+  → CoSetSInitF (w a)
 coSetSInit w = CoSetSInit $ \a →
-  seeks (sInit .~ a) w
+  seeks (_ { init = a }) w
 
-coSetMaxScore ∷ ∀ w a
-              . ComonadStore Story w
-              ⇒ w a
-              → CoSetMaxScoreF (w a)
+coSetMaxScore
+  ∷ ∀ w a
+  . ComonadStore TempStory w
+  ⇒ w a
+  → CoSetMaxScoreF (w a)
 coSetMaxScore w = CoSetMaxScore $ \i →
-  seeks (sMaxScore .~ Just i) w
+  seeks (_ { maxScore = Just i}) w
+
+coMkState
+  ∷ ∀ w a
+  . ComonadStore TempStory w
+  ⇒ w a
+  → CoMkStateF (w a)
+coMkState w =
+  let exists = mkExists $ CoMkStateF1 { next : \l val →
+        let sid = l -- we could generate label instead of client passing in (e.g. UUID)
+        in Tuple (Sid sid) (seeks (\s -> s { states = M.insert sid (unsafeToForeign val) s.states }) w)
+      }
+  in CoMkState exists
 
 
-type Stack                     = Store Story
+
+-- same as Story, but with Maybe for required fields
+type TempStory =
+  { title    ∷ Maybe String
+  , player   ∷ Maybe Player
+  , rooms    ∷ M.Map Rid Room
+  , objects  ∷ M.Map Oid Object
+  , states   ∷ M.Map String Foreign
+  , score    ∷ Int
+  , maxScore ∷ Maybe Int
+  , say      ∷ Array (Tuple String (Action Unit))
+  , init     ∷ Action Unit
+  }
+type Stack                     = Store TempStory
 type StoryBuilderInterpreter a = CofreeT CoStoryBuilderF Stack a
 
-mkCofree ∷ ∀ a
-          . Stack a
-         → StoryBuilderInterpreter a
+mkCofree
+  ∷ ∀ a
+  . Stack a
+  → StoryBuilderInterpreter a
 mkCofree =
   coiterT (   coSetSTitle
           *:* coMkPlayer
@@ -82,28 +124,42 @@ mkCofree =
           *:* coSetMaxScore
           )
 
-interpret ∷ ∀ a r c
-          . (a → r → c)
-          → StoryBuilderInterpreter a
-          → StoryBuilder r
-          → c
-interpret f interpreter =
-    unwrap <<< pairEffect f interpreter
+interpret
+  ∷ ∀ a r c
+  . (a → r → c)
+  → StoryBuilderInterpreter a
+  → StoryBuilder r
+  → c
+interpret f interpreter dsl =
+    unwrap $ pairEffect storyBuilderPairing f interpreter dsl
+
+storyBuilderPairing ∷ CoStoryBuilderF ⋈ StoryBuilderF
+storyBuilderPairing =   setSTitlePairing
+                    >:< mkPlayerPairing
+                    >:< mkObjectPairing
+                    >:< mkRoomPairing
+                    >:< mkStatePairing
+                    >:< setSInitPairing
+                    >:< setMaxScorePairing
 
 
 buildStory ∷ StoryBuilder Unit → Story
 buildStory storyBuilder =
-  let start                   ∷ Stack Story
-      start                   = store id $ Story
-                                          { title   : Nothing
-                                           , player  : { inventory: empty, location: Nothing }
-                                           , rooms   : M.empty
-                                           , objects : M.empty
-                                           , states  : M.empty
-                                           , score   : 0
-                                           , maxScore: Nothing
-                                           , say     : []
-                                           , init    : pure unit
-                                           }
-      storyBuilderInterpreter = mkCofree start
-  in interpret (\l _ → l) storyBuilderInterpreter storyBuilder
+  let start ∷ Stack TempStory
+      start = store identity
+               { title   : Nothing
+               , player  : Nothing
+               , rooms   : M.empty
+               , objects : M.empty
+               , states  : M.empty
+               , score   : 0
+               , maxScore: Nothing
+               , say     : []
+               , init    : pure unit
+               }
+      interpreter = mkCofree start
+      tempStory = interpret (\l _ → l) interpreter storyBuilder
+  in Story
+    $ merge { title  : fromMaybe' (\_ -> unsafeCrashWith "title not defined" ) tempStory.title }
+    $ merge { player : fromMaybe' (\_ -> unsafeCrashWith "player not defined") tempStory.player }
+      tempStory

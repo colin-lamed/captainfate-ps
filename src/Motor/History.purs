@@ -15,8 +15,8 @@ module Motor.History
   , initStory
   ) where
 
-import Prelude (class Show, bind, discard, map, pure, show, ($), (*>), (<$>), (<*>), (<<<), (<>), (>>=))
-import Control.Monad.State (State, get, modify)
+import Prelude (class Show, bind, discard, map, pure, show, void, ($), (*>), (<$>), (<*>), (<<<), (<>), (>>=))
+import Control.Monad.State (State, get, modify_)
 import Text.Parsing.Parser (Parser, runParser)
 import Text.Parsing.Parser.Combinators (lookAhead, manyTill, sepBy, try)
 import Text.Parsing.Parser.String   (noneOf, string)
@@ -27,7 +27,8 @@ import Data.Maybe  (Maybe(..))
 import Data.Either (Either(..))
 import Data.Foldable (foldM)
 import Data.List as L
-import Data.String as S
+import Data.String (null) as S
+import Data.String.CodeUnits (fromCharArray) as S
 import Data.Tuple (Tuple(..))
 import Debug.Trace (trace)
 import Motor.Interpreter.ActionInterpreter (runAction)
@@ -114,7 +115,7 @@ replay _ (HUse oName1 mOName2) = trace ("HUse " <> oName1 <> " `with` " <> show 
     Nothing     → replayUse oName1
 
 replay _ (HTalk who) = trace ("HTalk " <> who) \_ → do
-  modify $ sSay .~ []
+  modify_ $ sSay .~ []
   eOid ← lookupOidByTitle who
   case eOid of
     Right oid → do o ← toObject oid
@@ -127,7 +128,7 @@ replay _ (HTalk who) = trace ("HTalk " <> who) \_ → do
 replay _ (HSay say') = trace ("HSay " <> say') \_ → do
   eAtn ← lookupSay say'
   case eAtn of
-    Right atn → do modify $ sSay .~ []
+    Right atn → do modify_ $ sSay .~ []
                    txt ← runAction atn
                    pure $ Right txt
     Left err → pure $ Left err

@@ -1,38 +1,39 @@
-module View.CommandLine.View
-  ( view
+module Motor.View.CommandLine.View
+  ( commandLineView
   ) where
 
 import Prelude
-import Control.Monad.Aff.Console (CONSOLE, log)
-import Control.Monad.Aff.Class (liftAff)
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Console as EC
-import Control.Monad.Eff.Exception (EXCEPTION)
-import Control.Monad.State.Trans (get, modify)
+import Control.Monad.State.Trans (get, modify_)
+import Control.Monad.Reader.Trans (ask)
 import Data.Array as A
 import Data.Either (Either(..), either)
 import Data.Foldable (intercalate)
 import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
-import LineReader (READLINE, createConsoleInterface, question, noCompletion)
+import Effect (Effect)
+import Effect.Aff (makeAff, nonCanceler)
+import Effect.Aff.Class (liftAff)
+import Effect.Class (liftEffect)
+import Effect.Console as EC
+import Node.ReadLine (createConsoleInterface, noCompletion, question) as RL
 import Motor.Interpreter.StoryInterpreter (buildStory)
 import Motor.Interpreter.ActionInterpreter (runAction)
 import Motor.Story.Types (Action, Object, Oid, Rid, Room, StoryBuilder)
-import Motor.Story.Lens (sInit, sInventory, sSay, getTitle, (.~), (^.))
+import Motor.Story.Lens (sInit, sInventory, sSay, sTitle, (.~), (^.))
 import Motor.Util (currentRoom, goto, listItems, listExits, takeItemS, the, toObject, useWith, useItself)
-import View.CommandLine.Types (SS, runSS)
+import Motor.View.CommandLine.Types (SS, runSS)
 
 
 -- | Runs the app as a command-line app
-view ∷ StoryBuilder Unit → Eff (console ∷ CONSOLE, readline ∷ READLINE, exception ∷ EXCEPTION) Unit
-view sb = do
+commandLineView ∷ StoryBuilder Unit → Effect Unit
+commandLineView sb = do
   let story = buildStory sb
   EC.log "----------"
-  EC.log (story ^.getTitle)
+  EC.log (story ^.sTitle)
   EC.log "----------"
 
-  interface ← createConsoleInterface noCompletion
+  interface ← RL.createConsoleInterface RL.noCompletion
 
   let loop1 ∷ SS Unit
       loop1 = do
@@ -54,7 +55,7 @@ putStrLns ∷ Array String → SS Unit
 putStrLns = putStrLn <<< intercalate "\n"
 
 putStrLn ∷ String → SS Unit
-putStrLn = liftAff <<< log
+putStrLn = liftEffect <<< EC.log
 
 loop ∷ SS Unit
 loop = do
@@ -129,6 +130,15 @@ displayInRoom room = do
   putStrLn ""
   exits ← listExits room
   putStrLn $ "The following exits are visible: " <> intercalate ", " (map _.label exits) <> "."
+
+question
+  :: String
+  -> SS String
+question q = do
+    interface ← ask
+    liftAff $ makeAff $ go interface
+  where
+    go interface handler = RL.question q (handler <<< Right) interface $> nonCanceler
 
 selectOption ∷ Array Option → SS Unit
 selectOption options = do
@@ -253,7 +263,7 @@ onSelectUseItselfO oid = do
 
 sayAction ∷ Action Unit → SS Unit
 sayAction action = do
-  modify $ sSay .~ []
+  modify_ $ sSay .~ []
   txt   ← runAction action
   putStrLns txt
   story ← get

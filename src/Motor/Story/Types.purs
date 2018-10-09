@@ -2,17 +2,21 @@ module Motor.Story.Types
   ( Action, ActionF, CoActionF
   , PrintLnF(..), AddItemF(..), TakeItemF(..), DestroyItemF(..), IncScoreF(..), SayF(..), PlayerHasF(..), RoomHasF(..), RoomOfF(..), CurrentRoomF(..)
   , CoPrintLnF(..), CoAddItemF(..), CoTakeItemF(..), CoDestroyItemF(..), CoIncScoreF(..), CoSayF(..), CoPlayerHasF(..), CoRoomHasF(..), CoRoomOfF(..), CoCurrentRoomF(..)
+  , printLnPairing, addItemPairing, takeItemPairing, destroyItemPairing, incScorePairing, sayPairing, playerHasPairing, roomHasPairing, roomOfPairing, currentRoomPairing
   , DirHint(..)
   , Exit
   , ExitsBuilder, ExitsBuilderF, CoExitsBuilderF, AddExitF(..), CoAddExitF(..)
+  , addExitPairing
   , MkStateF(..), MkStateF1(..), CoMkStateF(..), CoMkStateF1(..)
   , GetStateF(..), GetStateF1(..), CoGetStateF(..), CoGetStateF1(..)
   , SetStateF(..), SetStateF1(..), CoSetStateF(..), CoSetStateF1(..)
+  , getStatePairing, setStatePairing
   , NounType(..)
   , Object
   , ObjectBuilder, ObjectBuilderF, CoObjectBuilderF
   , SetOTitleF(..), SetONounTypeF(..), SetOIsPluralF(..), SetODescrF(..), SetOCanPickUpF(..), SetOUseF(..), SetOTalkF(..)
   , CoSetOTitleF(..), CoSetONounTypeF(..), CoSetOIsPluralF(..), CoSetODescrF(..), CoSetOCanPickUpF(..), CoSetOUseF(..), CoSetOTalkF(..)
+  , setOTitlePairing, setONounTypePairing, setOIsPluralPairing, setODescrPairing, setOCanPickUpPairing, setOUsePairing, setOTalkPairing
   , Oid(..)
   , Player
   , Rid(..)
@@ -20,28 +24,32 @@ module Motor.Story.Types
   , RoomBuilder, RoomBuilderF, CoRoomBuilderF
   , SetRTitleF(..), SetRDescrF(..), SetRExitsF(..), SetRItemsF(..)
   , CoSetRTitleF(..), CoSetRDescrF(..), CoSetRExitsF(..), CoSetRItemsF(..)
+  , setRTitlePairing, setRDescrPairing, setRExitsPairing, setRItemsPairing
   , Sid(..)
   , Story(..)
   , StoryBuilder, StoryBuilderF, CoStoryBuilderF
   , SetSTitleF(..), MkPlayerF(..), MkObjectF(..), MkRoomF(..), SetSInitF(..), SetMaxScoreF(..)
   , CoSetSTitleF(..), CoMkPlayerF(..), CoMkObjectF(..), CoMkRoomF(..), CoSetSInitF(..), CoSetMaxScoreF(..)
+  , setSTitlePairing, mkPlayerPairing, mkObjectPairing, mkRoomPairing, mkStatePairing, setSInitPairing, setMaxScorePairing
   , UseAction, UseActionF, CoUseActionF, WithF(..), CoWithF(..)
+  , withPairing
   ) where
 
 import Prelude
-
-import Proact.Monad.Trans.Free (FreeT)
+import Control.Monad.Free.Trans (FreeT)
 import Data.Identity (Identity)
-import Data.Dynamic (Dynamic)
 import Data.Either (Either)
 import Data.Exists (Exists, mkExists, runExists)
-import Coproduct (type (⊕), type (⊗))
-import Pairing (class Pairing, pair)
+import Data.Functor.Pairing (type (⋈))
+import Data.Functor.Pairing.PairEffect (tupleFuncPairing)
+import Data.Functor.Product.Infix (type (⊕), type (⊗))
 import Data.Map as M
 import Data.Maybe (Maybe)
 import Data.Newtype (class Newtype)
 import Data.Tuple (Tuple(..))
+import Foreign (Foreign)
 import Unsafe.Coerce (unsafeCoerce)
+
 
 
 newtype Rid = Rid String
@@ -56,6 +64,7 @@ derive instance eqOid  ∷ Eq Oid
 instance showOid ∷ Show Oid where
   show (Oid s) = s
 
+-- | State id - phantom type `a` keeps track of the type of state being referenced
 newtype Sid a = Sid String
 derive instance ordSid ∷ Ord (Sid a)
 derive instance eqSid  ∷ Eq (Sid a)
@@ -67,11 +76,13 @@ instance showSid ∷ Show (Sid a) where
 -- e.g. title, maxScore, init are immutable
 -- Story available through Writer, StoryState through State
 newtype Story = Story
-  { title    ∷ Maybe String -- is required (currently lens with throw exception if not set...)
+  { title    ∷ String
   , player   ∷ Player
   , rooms    ∷ M.Map Rid Room
   , objects  ∷ M.Map Oid Object
-  , states   ∷ M.Map String Dynamic
+  -- | the state type is `Foreign` - a `Sid` key will be required when read/write
+  -- | the state and indicates which type to coerce from
+  , states   ∷ M.Map String Foreign
   , score    ∷ Int
   , maxScore ∷ Maybe Int
   , say      ∷ Array (Tuple String (Action Unit))
@@ -81,7 +92,7 @@ derive instance newtypeStory ∷ Newtype Story _
 
 type Player =
   { inventory ∷ Array Oid
-  , location  ∷ Maybe Rid -- is required (currently lens with throw exception if not set...)
+  , location  ∷ Rid
   }
 
 data DirHint = N | W | E | S | U
@@ -126,18 +137,17 @@ type Object =
 -- https://stackoverflow.com/questions/31592018/rank-2-types-in-data-constructors
 -- https://stackoverflow.com/questions/36006483/how-to-use-type-constrains-with-exists
 data MkStateF1 next a = MkStateF1 { val   ∷ a
-                                  , toDyn ∷ a → Dynamic
                                   , next  ∷ Sid a → next
                                   }
 
 
-data SetSTitleF   k = SetSTitle   String                               k
-data MkPlayerF    k = MkPlayer    (Array Oid) Rid                      k  -- TODO can we enforce set once-and-only-once?
-data MkObjectF    k = MkObject    Oid (ObjectBuilder Unit)             k
-data MkRoomF      k = MkRoom      Rid (RoomBuilder Unit)               k
+data SetSTitleF   k = SetSTitle   String                        k
+data MkPlayerF    k = MkPlayer    (Array Oid) Rid               k  -- TODO can we enforce set once-and-only-once?
+data MkObjectF    k = MkObject    Oid (ObjectBuilder Unit)      k
+data MkRoomF      k = MkRoom      Rid (RoomBuilder Unit)        k
 data MkStateF     k = MkState     String (Exists (MkStateF1 k))
-data SetSInitF    k = SetSInit    (Action Unit)                        k
-data SetMaxScoreF k = SetMaxScore Int                                  k
+data SetSInitF    k = SetSInit    (Action Unit)                 k
+data SetMaxScoreF k = SetMaxScore Int                           k
 derive instance setSTitleFunctor   ∷ Functor SetSTitleF
 derive instance mkPlayerFunctor    ∷ Functor MkPlayerF
 derive instance mkObjectFunctor    ∷ Functor MkObjectF
@@ -150,8 +160,8 @@ instance mkStateFunctor ∷ Functor MkStateF where
     where
       mapMkStateExists ∷ ∀ a b. (a → b) → Exists (MkStateF1 a) → Exists (MkStateF1 b)
       mapMkStateExists f exists =
-        runExists (\(MkStateF1 {val, toDyn, next}) →
-          mkExists $ MkStateF1 {val, toDyn, next: f <<< next}
+        runExists (\(MkStateF1 {val, next}) →
+          mkExists $ MkStateF1 {val, next: f <<< next}
         ) exists
 
 
@@ -169,16 +179,16 @@ type StoryBuilder = FreeT StoryBuilderF Identity
 
 
 
-data CoMkStateF1 next a = CoMkStateF1 { next ∷ String → a → (a → Dynamic) → Tuple (Sid a) next
+data CoMkStateF1 next a = CoMkStateF1 { next ∷ String → a → Tuple (Sid a) next
                                       }
 
-data CoSetSTitleF   k = CoSetSTitle   (                        String                   →         k )
-data CoMkPlayerF    k = CoMkPlayer    (                        (Array Oid) → Rid        →         k )
-data CoMkObjectF    k = CoMkObject    (                        Oid → ObjectBuilder Unit →         k )
-data CoMkRoomF      k = CoMkRoom      (                        Rid → RoomBuilder Unit   →         k )
+data CoSetSTitleF   k = CoSetSTitle   (String                   → k)
+data CoMkPlayerF    k = CoMkPlayer    ((Array Oid) → Rid        → k)
+data CoMkObjectF    k = CoMkObject    (Oid → ObjectBuilder Unit → k)
+data CoMkRoomF      k = CoMkRoom      (Rid → RoomBuilder Unit   → k)
 data CoMkStateF     k = CoMkState     (Exists (CoMkStateF1 k))
-data CoSetSInitF    k = CoSetSInit    (                        (Action Unit)            →         k )
-data CoSetMaxScoreF k = CoSetMaxScore (                        Int                      →         k )
+data CoSetSInitF    k = CoSetSInit    ((Action Unit)            → k)
+data CoSetMaxScoreF k = CoSetMaxScore (Int                      → k)
 
 derive instance coSetSTitleFunctor   ∷ Functor CoSetSTitleF
 derive instance coMkPlayerFunctor    ∷ Functor CoMkPlayerF
@@ -194,8 +204,8 @@ instance coMkStateFunctor ∷ Functor CoMkStateF where
       mapCoMkStateExists ∷ ∀ a b. (a → b) → Exists (CoMkStateF1 a) → Exists (CoMkStateF1 b)
       mapCoMkStateExists f exists =
         runExists (\(CoMkStateF1 { next }) →
-          let next2 l a toDyn = Tuple s (f k2)
-                            where Tuple s k2 = next l a toDyn
+          let next2 l a = Tuple s (f k2)
+                          where Tuple s k2 = next l a
           in mkExists $ CoMkStateF1 { next: next2 }
         ) exists
 
@@ -211,42 +221,41 @@ type CoStoryBuilderF
 
 
 
-instance sTitlePairing ∷ Pairing CoSetSTitleF SetSTitleF where
-  pair f (CoSetSTitle g) (SetSTitle t k) =
-    f (g t) k
+setSTitlePairing ∷ CoSetSTitleF ⋈ SetSTitleF
+setSTitlePairing f (CoSetSTitle g) (SetSTitle t k) =
+  f (g t) k
 
-instance mkPlayerPairing ∷ Pairing CoMkPlayerF MkPlayerF where
-  pair f (CoMkPlayer g) (MkPlayer os r k) =
+mkPlayerPairing ∷ CoMkPlayerF ⋈ MkPlayerF
+mkPlayerPairing f (CoMkPlayer g) (MkPlayer os r k) =
     f (g os r) k
 
-instance mkObjectPairing ∷ Pairing CoMkObjectF MkObjectF where
-  pair f (CoMkObject g) (MkObject o ob k) =
+mkObjectPairing ∷ CoMkObjectF ⋈ MkObjectF
+mkObjectPairing f (CoMkObject g) (MkObject o ob k) =
     f (g o ob) k
 
-instance mkRoomPairing∷ Pairing CoMkRoomF MkRoomF where
-  pair f (CoMkRoom g) (MkRoom r rb k) =
+mkRoomPairing ∷ CoMkRoomF ⋈ MkRoomF
+mkRoomPairing f (CoMkRoom g) (MkRoom r rb k) =
     f (g r rb) k
 
-instance mkStatePairing ∷ Pairing CoMkStateF MkStateF where
-  pair f (CoMkState existsG) (MkState t k) =
+mkStatePairing ∷ CoMkStateF ⋈ MkStateF
+mkStatePairing f (CoMkState existsG) (MkState t k) =
     runExists (\(CoMkStateF1 { next } ) →
       let g = next
-      in runExists (\(MkStateF1 { val, toDyn, next }) →
+      in runExists (\(MkStateF1 { val, next }) →
         let h = next
-            -- how to match the two existentials?
             pair2 ∷ ∀ a b r c. (a → b → r) → Tuple (Sid c) a → (Sid c → b) → r
-            pair2 f tuple func = pair f tuple func
-            g2 = unsafeCoerce (g t (unsafeCoerce val) (unsafeCoerce toDyn))
+            pair2 f tuple func = tupleFuncPairing f tuple func
+            g2 = unsafeCoerce (g t (unsafeCoerce val))
         in pair2 f g2 h
       ) k
     ) existsG
 
-instance setSInitPairing ∷ Pairing CoSetSInitF SetSInitF where
-  pair f (CoSetSInit g) (SetSInit a k) =
+setSInitPairing ∷ CoSetSInitF ⋈ SetSInitF
+setSInitPairing f (CoSetSInit g) (SetSInit a k) =
     f (g a) k
 
-instance setMaxScorePairing ∷ Pairing CoSetMaxScoreF SetMaxScoreF where
-  pair f (CoSetMaxScore g) (SetMaxScore i k) =
+setMaxScorePairing ∷ CoSetMaxScoreF ⋈ SetMaxScoreF
+setMaxScorePairing f (CoSetMaxScore g) (SetMaxScore i k) =
     f (g i) k
 
 
@@ -256,10 +265,10 @@ data SetRTitleF k = SetRTitle String              k
 data SetRDescrF k = SetRDescr (Action Unit)       k
 data SetRExitsF k = SetRExits (ExitsBuilder Unit) k
 data SetRItemsF k = SetRItems (Array Oid)         k
-derive instance setRTitleFunctor   ∷ Functor SetRTitleF
-derive instance setRDescrFunctor   ∷ Functor SetRDescrF
-derive instance setRExitsFunctor   ∷ Functor SetRExitsF
-derive instance setRItemsFunctor   ∷ Functor SetRItemsF
+derive instance setRTitleFunctor ∷ Functor SetRTitleF
+derive instance setRDescrFunctor ∷ Functor SetRDescrF
+derive instance setRExitsFunctor ∷ Functor SetRExitsF
+derive instance setRItemsFunctor ∷ Functor SetRItemsF
 
 type RoomBuilderF
   = SetRTitleF
@@ -272,10 +281,10 @@ data CoSetRTitleF k = CoSetRTitle (String            → k)
 data CoSetRDescrF k = CoSetRDescr (Action Unit       → k)
 data CoSetRExitsF k = CoSetRExits (ExitsBuilder Unit → k)
 data CoSetRItemsF k = CoSetRItems ((Array Oid)       → k)
-derive instance coSetRTitleFunctor   ∷ Functor CoSetRTitleF
-derive instance coSetRDescrFunctor   ∷ Functor CoSetRDescrF
-derive instance coSetRExitsFunctor   ∷ Functor CoSetRExitsF
-derive instance coSetRItemsFunctor   ∷ Functor CoSetRItemsF
+derive instance coSetRTitleFunctor ∷ Functor CoSetRTitleF
+derive instance coSetRDescrFunctor ∷ Functor CoSetRDescrF
+derive instance coSetRExitsFunctor ∷ Functor CoSetRExitsF
+derive instance coSetRItemsFunctor ∷ Functor CoSetRItemsF
 
 type CoRoomBuilderF
   = CoSetRTitleF
@@ -284,31 +293,31 @@ type CoRoomBuilderF
   ⊗ CoSetRItemsF
 
 
-instance setRTitlePairing ∷ Pairing CoSetRTitleF SetRTitleF where
-  pair f (CoSetRTitle g) (SetRTitle t k) =
+setRTitlePairing ∷ CoSetRTitleF ⋈ SetRTitleF
+setRTitlePairing f (CoSetRTitle g) (SetRTitle t k) =
     f (g t) k
 
-instance setRDescrPairing ∷ Pairing CoSetRDescrF SetRDescrF where
-  pair f (CoSetRDescr g) (SetRDescr a k) =
+setRDescrPairing ∷ CoSetRDescrF ⋈ SetRDescrF
+setRDescrPairing f (CoSetRDescr g) (SetRDescr a k) =
     f (g a) k
 
-instance setRExitsPairing ∷ Pairing CoSetRExitsF SetRExitsF where
-  pair f (CoSetRExits g) (SetRExits ea k) =
+setRExitsPairing ∷ CoSetRExitsF ⋈ SetRExitsF
+setRExitsPairing f (CoSetRExits g) (SetRExits ea k) =
     f (g ea) k
 
-instance setRItemsPairing ∷ Pairing CoSetRItemsF SetRItemsF where
-  pair f (CoSetRItems g) (SetRItems os k) =
+setRItemsPairing ∷ CoSetRItemsF ⋈ SetRItemsF
+setRItemsPairing f (CoSetRItems g) (SetRItems os k) =
     f (g os) k
 
 --------------------------------------------------------------------------------
 
-data SetOTitleF     k = SetOTitle     String           k
-data SetONounTypeF  k = SetONounType  NounType         k
-data SetOIsPluralF  k = SetOIsPlural  Boolean          k
-data SetODescrF     k = SetODescr     (Action Unit)    k
-data SetOCanPickUpF k = SetOCanPickUp Boolean          k
+data SetOTitleF     k = SetOTitle     String                                  k
+data SetONounTypeF  k = SetONounType  NounType                                k
+data SetOIsPluralF  k = SetOIsPlural  Boolean                                 k
+data SetODescrF     k = SetODescr     (Action Unit)                           k
+data SetOCanPickUpF k = SetOCanPickUp Boolean                                 k
 data SetOUseF       k = SetOUse       (Either (Action Unit) (UseAction Unit)) k
-data SetOTalkF      k = SetOTalk      (Action Unit)    k
+data SetOTalkF      k = SetOTalk      (Action Unit)                           k
 derive instance setOTitleFunctor     ∷ Functor SetOTitleF
 derive instance setONounTypeFunctor  ∷ Functor SetONounTypeF
 derive instance setOIsPluralFunctor  ∷ Functor SetOIsPluralF
@@ -327,13 +336,13 @@ type ObjectBuilderF
   ⊕ SetOTalkF
 type ObjectBuilder = FreeT ObjectBuilderF Identity
 
-data CoSetOTitleF     k = CoSetOTitle     (String          → k)
-data CoSetONounTypeF  k = CoSetONounType  (NounType        → k)
-data CoSetOIsPluralF  k = CoSetOIsPlural  (Boolean         → k)
-data CoSetODescrF     k = CoSetODescr     (Action Unit     → k)
-data CoSetOCanPickUpF k = CoSetOCanPickUp (Boolean         → k)
+data CoSetOTitleF     k = CoSetOTitle     (String                                → k)
+data CoSetONounTypeF  k = CoSetONounType  (NounType                              → k)
+data CoSetOIsPluralF  k = CoSetOIsPlural  (Boolean                               → k)
+data CoSetODescrF     k = CoSetODescr     (Action Unit                           → k)
+data CoSetOCanPickUpF k = CoSetOCanPickUp (Boolean                               → k)
 data CoSetOUseF       k = CoSetOUse       (Either (Action Unit) (UseAction Unit) → k)
-data CoSetOTalkF      k = CoSetOTalk      (Action Unit     → k)
+data CoSetOTalkF      k = CoSetOTalk      (Action Unit                           → k)
 derive instance coSetOTitleFunctor     ∷ Functor CoSetOTitleF
 derive instance coSetONounTypeFunctor  ∷ Functor CoSetONounTypeF
 derive instance coSetOIsPluralFunctor  ∷ Functor CoSetOIsPluralF
@@ -352,43 +361,41 @@ type CoObjectBuilderF
   ⊗ CoSetOTalkF
 
 
-instance setOTitlePairing ∷ Pairing CoSetOTitleF SetOTitleF where
-  pair f (CoSetOTitle g) (SetOTitle t k) =
+setOTitlePairing ∷ CoSetOTitleF ⋈ SetOTitleF
+setOTitlePairing f (CoSetOTitle g) (SetOTitle t k) =
     f (g t) k
 
-instance setONounTypePairing ∷ Pairing CoSetONounTypeF SetONounTypeF where
-  pair f (CoSetONounType g) (SetONounType nt k) =
+setONounTypePairing ∷ CoSetONounTypeF ⋈ SetONounTypeF
+setONounTypePairing f (CoSetONounType g) (SetONounType nt k) =
     f (g nt) k
 
-instance setIsPluralPairing ∷ Pairing CoSetOIsPluralF SetOIsPluralF where
-  pair f (CoSetOIsPlural g) (SetOIsPlural b k) =
+setOIsPluralPairing ∷ CoSetOIsPluralF ⋈ SetOIsPluralF
+setOIsPluralPairing f (CoSetOIsPlural g) (SetOIsPlural b k) =
     f (g b) k
 
-instance setODescrPairing ∷ Pairing CoSetODescrF SetODescrF where
-  pair f (CoSetODescr g) (SetODescr a k) =
+setODescrPairing ∷ CoSetODescrF ⋈ SetODescrF
+setODescrPairing f (CoSetODescr g) (SetODescr a k) =
     f (g a) k
 
-instance setOCanPickUpPairing ∷ Pairing CoSetOCanPickUpF SetOCanPickUpF where
-  pair f (CoSetOCanPickUp g) (SetOCanPickUp b k) =
+setOCanPickUpPairing ∷ CoSetOCanPickUpF ⋈ SetOCanPickUpF
+setOCanPickUpPairing f (CoSetOCanPickUp g) (SetOCanPickUp b k) =
     f (g b) k
 
-instance setOUsePairing ∷ Pairing CoSetOUseF SetOUseF where
-  pair f (CoSetOUse g) (SetOUse ua k) =
+setOUsePairing ∷ CoSetOUseF ⋈ SetOUseF
+setOUsePairing f (CoSetOUse g) (SetOUse ua k) =
     f (g ua) k
 
-instance setOTalkPairing ∷ Pairing CoSetOTalkF SetOTalkF where
-  pair f (CoSetOTalk g) (SetOTalk a k) =
+setOTalkPairing ∷ CoSetOTalkF ⋈ SetOTalkF
+setOTalkPairing f (CoSetOTalk g) (SetOTalk a k) =
    f (g a) k
 
 --------------------------------------------------------------------------------
 
 data GetStateF1 next a = GetStateF1 { sid     ∷ Sid a
-                                    , fromDyn ∷ Dynamic → Maybe a
                                     , next    ∷ a → next
                                     }
 data SetStateF1 next a = SetStateF1 { sid   ∷ Sid a
                                     , val   ∷ a
-                                    , toDyn ∷ a → Dynamic
                                     , next  ∷ next
                                     }
 
@@ -401,8 +408,8 @@ instance getStateFunctor ∷ Functor GetStateF where
     where
       mapGetStateExists ∷ ∀ a b. (a → b) → Exists (GetStateF1 a) → Exists (GetStateF1 b)
       mapGetStateExists f exists =
-        runExists (\(GetStateF1 {sid, fromDyn, next}) →
-          mkExists $ GetStateF1 {sid, fromDyn, next: f <<< next}
+        runExists (\(GetStateF1 {sid, next}) →
+          mkExists $ GetStateF1 {sid, next: f <<< next}
         ) exists
 
 instance setStateFunctor ∷ Functor SetStateF where
@@ -410,12 +417,13 @@ instance setStateFunctor ∷ Functor SetStateF where
     where
       mapSetStateExists ∷ ∀ a b. (a → b) → Exists (SetStateF1 a) → Exists (SetStateF1 b)
       mapSetStateExists f exists =
-        runExists (\(SetStateF1 {sid, val, next, toDyn}) →
-          mkExists $ SetStateF1 {sid, val, toDyn, next: f next}
+        runExists (\(SetStateF1 {sid, val, next}) →
+          mkExists $ SetStateF1 {sid, val, next: f next}
         ) exists
 
-data CoGetStateF1 next a = CoGetStateF1 { next  ∷ Sid a → (Dynamic → Maybe a) → Tuple a next }
-data CoSetStateF1 next a = CoSetStateF1 { next  ∷ Sid a → a → (a → Dynamic) → next }
+-- TODO switch from record to function (newtype?) -- or even drop type, and define as Exists `(Sid a → ... )`
+data CoGetStateF1 next a = CoGetStateF1 { next  ∷ Sid a → Tuple a next }
+data CoSetStateF1 next a = CoSetStateF1 { next  ∷ Sid a → a → next }
 
 data CoGetStateF        k = CoGetState (Exists (CoGetStateF1 k))
 data CoSetStateF        k = CoSetState (Exists (CoSetStateF1 k))
@@ -426,8 +434,8 @@ instance coGetStateFunctor ∷ Functor CoGetStateF where
       mapCoGetStateExists ∷ ∀ a b. (a → b) → Exists (CoGetStateF1 a) → Exists (CoGetStateF1 b)
       mapCoGetStateExists f exists =
         runExists (\(CoGetStateF1 {next}) →
-          let next2 s fromDyn = Tuple a (f k2)
-                            where Tuple a k2 = next s fromDyn
+          let next2 s = Tuple a (f k2)
+                        where Tuple a k2 = next s
           in mkExists $ CoGetStateF1 {next: next2}
         ) exists
 
@@ -438,31 +446,29 @@ instance coSetStateFunctor ∷ Functor CoSetStateF where
       mapCoSetStateExists ∷ ∀ a b. (a → b) → Exists (CoSetStateF1 a) → Exists (CoSetStateF1 b)
       mapCoSetStateExists f exists =
         runExists (\(CoSetStateF1 { next }) →
-          let next2 s a toDyn = f (next s a toDyn)
-          in mkExists $ CoSetStateF1 { next: next2}
+          let next2 s a = f (next s a)
+          in mkExists $ CoSetStateF1 { next: next2 }
         ) exists
 
 
-instance getStatePairing ∷ Pairing CoGetStateF GetStateF where
-  pair f (CoGetState existsG) (GetState k) =
+getStatePairing ∷ CoGetStateF ⋈ GetStateF
+getStatePairing f (CoGetState existsG) (GetState k) =
     runExists (\(CoGetStateF1 { next } ) →
       let g = next
-      in runExists (\(GetStateF1 { sid, fromDyn, next }) →
-           let h = next
-               pair2 ∷ ∀ a b r c. (a → b → r) → Tuple c a → (c → b) → r
-               pair2 f tuple func = pair f tuple func
-               g2 = unsafeCoerce (g (unsafeCoerce sid) (unsafeCoerce fromDyn))
+      in runExists (\(GetStateF1 { sid, next: h }) →
+           let pair2 ∷ ∀ a b r c. (a → b → r) → Tuple c a → (c → b) → r
+               pair2 f tuple func = tupleFuncPairing f tuple func
+               g2 = unsafeCoerce (g (unsafeCoerce sid))
            in pair2 f g2 h
          ) k
     ) existsG
 
-instance setStatePairing ∷ Pairing CoSetStateF SetStateF where
-  pair f (CoSetState existsG) (SetState k) =
+setStatePairing ∷ CoSetStateF ⋈ SetStateF
+setStatePairing f (CoSetState existsG) (SetState k) =
     runExists (\(CoSetStateF1 { next } ) →
       let g = next
-      in runExists (\(SetStateF1 { sid, val, toDyn, next }) →
-           let h = next
-               g2 = unsafeCoerce (g (unsafeCoerce sid) (unsafeCoerce val) (unsafeCoerce toDyn))
+      in runExists (\(SetStateF1 { sid, val, next: h }) →
+           let g2 = unsafeCoerce (g (unsafeCoerce sid) (unsafeCoerce val))
            in f g2 h
          ) k
     ) existsG
@@ -472,12 +478,12 @@ instance setStatePairing ∷ Pairing CoSetStateF SetStateF where
 --------------------------------------------------------------------------------
 
 
-data PrintLnF     k = PrintLn     String                         k
-data AddItemF     k = AddItem     Rid Oid                        k
-data TakeItemF    k = TakeItem    Oid                            k
-data DestroyItemF k = DestroyItem Oid                            k
-data IncScoreF    k = IncScore    Int                            k
-data SayF         k = Say         String (Action Unit)           k
+data PrintLnF     k = PrintLn     String                        k
+data AddItemF     k = AddItem     Rid Oid                       k
+data TakeItemF    k = TakeItem    Oid                           k
+data DestroyItemF k = DestroyItem Oid                           k
+data IncScoreF    k = IncScore    Int                           k
+data SayF         k = Say         String (Action Unit)          k
 data PlayerHasF   k = PlayerHas   Oid              (Boolean   → k)
 data RoomHasF     k = RoomHas     Rid Oid          (Boolean   → k)
 data RoomOfF      k = RoomOf      Oid              (Maybe Rid → k) -- assumes oid only in one room...
@@ -544,45 +550,45 @@ type CoActionF
   ⊗ CoSetStateF
 
 
-instance printLnPairing ∷ Pairing CoPrintLnF PrintLnF where
-  pair f (CoPrintLn g) (PrintLn t k) =
+printLnPairing ∷ CoPrintLnF ⋈ PrintLnF
+printLnPairing f (CoPrintLn g) (PrintLn t k) =
     f (g t) k
 
-instance addItemPairing ∷ Pairing CoAddItemF AddItemF where
-  pair f (CoAddItem g) (AddItem r o k) =
+addItemPairing ∷ CoAddItemF ⋈ AddItemF
+addItemPairing f (CoAddItem g) (AddItem r o k) =
     f (g r o) k
 
-instance takeItemPairing ∷ Pairing CoTakeItemF TakeItemF where
-  pair f (CoTakeItem g) (TakeItem o k) =
+takeItemPairing ∷ CoTakeItemF ⋈ TakeItemF
+takeItemPairing f (CoTakeItem g) (TakeItem o k) =
     f (g o) k
 
-instance destroyItemPairing ∷ Pairing CoDestroyItemF DestroyItemF where
-  pair f (CoDestroyItem g) (DestroyItem o k) =
+destroyItemPairing ∷ CoDestroyItemF ⋈ DestroyItemF
+destroyItemPairing f (CoDestroyItem g) (DestroyItem o k) =
     f (g o) k
 
-instance incScorePairing ∷ Pairing CoIncScoreF IncScoreF where
-  pair f (CoIncScore g) (IncScore i k) =
+incScorePairing ∷ CoIncScoreF ⋈ IncScoreF
+incScorePairing f (CoIncScore g) (IncScore i k) =
     f (g i) k
 
-instance sayPairing ∷ Pairing CoSayF SayF where
-  pair f (CoSay g) (Say s a k) =
+sayPairing ∷ CoSayF ⋈ SayF
+sayPairing f (CoSay g) (Say s a k) =
     f (g s a) k
 
-instance playerHasPairing ∷ Pairing CoPlayerHasF PlayerHasF where
-  pair f (CoPlayerHas g) (PlayerHas o k) =
-    pair f (g o) k
+playerHasPairing ∷ CoPlayerHasF ⋈ PlayerHasF
+playerHasPairing f (CoPlayerHas g) (PlayerHas o k) =
+    tupleFuncPairing f (g o) k
 
-instance roomHasPairing ∷ Pairing CoRoomHasF RoomHasF where
-  pair f (CoRoomHas g) (RoomHas r o k) =
-    pair f (g r o) k
+roomHasPairing ∷ CoRoomHasF ⋈ RoomHasF
+roomHasPairing f (CoRoomHas g) (RoomHas r o k) =
+    tupleFuncPairing f (g r o) k
 
-instance roomOfPairing ∷ Pairing CoRoomOfF RoomOfF where
-  pair f (CoRoomOf g) (RoomOf o k) =
-    pair f (g o) k
+roomOfPairing ∷ CoRoomOfF ⋈ RoomOfF
+roomOfPairing f (CoRoomOf g) (RoomOf o k) =
+    tupleFuncPairing f (g o) k
 
-instance currentRoomPairing ∷ Pairing CoCurrentRoomF CurrentRoomF where
-  pair f (CoCurrentRoom g) (CurrentRoom k) =
-    pair f g k
+currentRoomPairing ∷ CoCurrentRoomF ⋈ CurrentRoomF
+currentRoomPairing f (CoCurrentRoom g) (CurrentRoom k) =
+    tupleFuncPairing f g k
 
 
 --------------------------------------------------------------------------------
@@ -603,8 +609,8 @@ type CoExitsBuilderF
   = CoAddExitF
   ⊗ CoGetStateF
 
-instance addExitPairing ∷ Pairing CoAddExitF AddExitF where
-  pair f (CoAddExit g) (AddExit e k) =
+addExitPairing ∷ CoAddExitF ⋈ AddExitF
+addExitPairing f (CoAddExit g) (AddExit e k) =
     f (g e) k
 
 
@@ -626,8 +632,8 @@ type CoUseActionF
   = CoWithF
   ⊗ CoGetStateF
 
-instance withPairing ∷ Pairing CoWithF WithF where
-  pair f (CoWith g) (With o a k) =
+withPairing ∷ CoWithF ⋈ WithF
+withPairing f (CoWith g) (With o a k) =
     f (g o a) k
 
 --------------------------------------------------------------------------------

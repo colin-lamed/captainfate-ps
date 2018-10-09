@@ -1,13 +1,10 @@
 module Main where
 
 import Prelude
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Console (CONSOLE)
-import Control.Monad.Eff.Exception (EXCEPTION)
-import LineReader (READLINE)
+import Effect (Effect)
+import Motor.View (commandLineView)
 import Story.CaptainFate as CaptainFate
-import View.CommandLine.View (view)
 
-main ∷ Eff (console ∷ CONSOLE, readline ∷ READLINE, exception ∷ EXCEPTION) Unit
+main ∷ Effect Unit
 main =
-  view CaptainFate.story
+  commandLineView CaptainFate.story

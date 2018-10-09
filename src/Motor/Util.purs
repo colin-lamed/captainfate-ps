@@ -11,14 +11,14 @@ import Data.Map as M
 import Data.List as L
 import Data.Maybe (Maybe(..))
 import Data.Foldable as F
-import Data.String (toCharArray)
+import Data.String.CodeUnits (toCharArray)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import Partial.Unsafe (unsafeCrashWith, unsafePartial)
 import Motor.Interpreter.ActionInterpreter (runAction, runAction')
 import Motor.Interpreter.ExitsInterpreter (buildExits)
 import Motor.Interpreter.UseActionInterpreter (runUseAction)
-import Motor.Story.Lens (at, sInventory, sObjects, sPlayer, sRooms, sSay, setLocation, sLocation, (?=), (<>=), use)
+import Motor.Story.Lens (at, sInventory, sObjects, sPlayer, sRooms, sSay, sLocation, (.=), (?=), (<>=), use)
 import Motor.Story.Types (Action, Exit, NounType(..), Object, Oid, Rid, Room, Story)
 
 
@@ -75,7 +75,7 @@ goto ∷ ∀ m. MonadState Story m ⇒ Action (Maybe Rid) → m (Either (Array S
 goto roomAction = do
   Tuple txts mRid ← runAction' roomAction
   case mRid of
-    Just rid → do (sPlayer <<< setLocation) ?= rid
+    Just rid → do sLocation .= rid
                   pure $ Right rid
     Nothing  → pure $ Left txts
 

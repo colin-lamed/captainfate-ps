@@ -1,16 +1,10 @@
 module BrowserMain where
 
 import Prelude
-import Browser.WebStorage (WEB_STORAGE)
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Console (CONSOLE)
-import DOM (DOM)
+import Effect (Effect)
+import Motor.View (browserView)
 import Story.CaptainFate as CaptainFate
-import View.Browser.View (view)
 
-main ∷ Eff ( console    ∷ CONSOLE
-           , dom        ∷ DOM
-           , webStorage ∷ WEB_STORAGE
-           ) Unit
+main ∷ Effect Unit
 main =
-  view CaptainFate.story
+  browserView CaptainFate.story

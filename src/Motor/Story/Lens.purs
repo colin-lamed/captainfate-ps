@@ -1,6 +1,5 @@
 module Motor.Story.Lens
-  ( getTitle
-  , setTitle
+  ( sTitle
   , sPlayer
   , sRooms
   , sObjects
@@ -10,8 +9,7 @@ module Motor.Story.Lens
   , sSay
   , sInit
   , pInventory
-  , getLocation
-  , setLocation
+  , pLocation
   , eLabel
   , eDirHint
   , eRid
@@ -35,7 +33,6 @@ module Motor.Story.Lens
 ) where
 
 import Prelude (Unit, (<<<))
-import Data.Dynamic (Dynamic)
 import Data.Either (Either)
 import Data.Lens
 import Data.Lens.At (at)
@@ -44,6 +41,7 @@ import Data.Maybe (Maybe(..))
 import Data.Newtype (wrap, unwrap)
 import Data.Newtype as NT
 import Data.Tuple (Tuple)
+import Foreign (Foreign)
 import Partial.Unsafe (unsafeCrashWith)
 
 import Motor.Story.Types (Action, DirHint, Exit, ExitsBuilder, NounType, Object, Oid, Player, Rid, Room, Story(..), UseAction)
@@ -62,18 +60,8 @@ import Motor.Story.Types (Action, DirHint, Exit, ExitsBuilder, NounType, Object,
 
 -- manual lens creation..
 
-getTitle ∷ Getter' Story String
-getTitle = to \s →
-            -- not using maybe since eagerly evaluates the default value
-            case (unwrap s).title of
-              Just a  → a
-              Nothing → unsafeCrashWith "title - not set"
-
--- | Asymmetric setter from getter since getter does not expose laziness.
---   the setter must, since it will read the current value to transform it.
-setTitle ∷ Setter' Story (Maybe String)
-setTitle = \f story → let s = unwrap story
-                       in wrap (s { title = f (s.title) })
+sTitle ∷ Lens' Story String
+sTitle = lens (\s → (unwrap s).title) (\s title → NT.over Story (_ { title = title }) s)
 
 sPlayer ∷ Lens' Story Player
 sPlayer = lens (\s → (unwrap s).player) (\s player → NT.over Story (_ { player = player }) s)
@@ -84,7 +72,7 @@ sRooms = lens (\s → (unwrap s).rooms) (\s rooms → NT.over Story (_ { rooms =
 sObjects ∷ Lens' Story (M.Map Oid Object)
 sObjects = lens (\s → (unwrap s).objects) (\s objects → NT.over Story (_ { objects = objects }) s)
 
-sStates ∷ Lens' Story (M.Map String Dynamic)
+sStates ∷ Lens' Story (M.Map String Foreign)
 sStates = lens (\s → (unwrap s).states) (\s states → NT.over Story (_ { states = states }) s)
 
 sScore ∷ Lens' Story Int
@@ -102,17 +90,8 @@ sInit = lens (\s → (unwrap s).init) (\s init → NT.over Story (_ { init = ini
 pInventory ∷ Lens' Player (Array Oid)
 pInventory = lens (_.inventory) (\p inventory → p { inventory = inventory })
 
-getLocation∷ Getter' Player Rid
-getLocation = to \player →
-                -- not using maybe since eagerly evaluates the default value
-                case player.location of
-                  Just a  → a
-                  Nothing → unsafeCrashWith "location - not set"
-
--- | Asymmetric setter from getter since getter does not expose laziness.
---   the setter must, since it will read the current value to transform it.
-setLocation ∷ Setter' Player (Maybe Rid)
-setLocation = \f player → player { location = f player.location }
+pLocation ∷ Lens' Player Rid
+pLocation = lens (_.location) (\p location → p { location = location })
 
 eLabel ∷ Lens' Exit String
 eLabel = lens (_.label) (\e label → e { label = label })
@@ -163,5 +142,5 @@ oTalk = lens (_.talk) (\o talk → o { talk = talk })
 sInventory ∷ Lens' Story (Array Oid)
 sInventory = sPlayer <<< pInventory
 
-sLocation ∷ Getter' Story Rid
-sLocation = sPlayer <<< getLocation
+sLocation ∷ Lens' Story Rid
+sLocation = sPlayer <<< pLocation

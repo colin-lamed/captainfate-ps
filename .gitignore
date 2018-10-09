@@ -6,6 +6,5 @@
 /.psc-package/
 /.psc*
 /.purs*
-/.psa*
-/dist/
 captainfate-ps.zip
+public/js/Main.js

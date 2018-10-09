@@ -3,53 +3,67 @@ module Motor.Interpreter.RoomInterpreter
   ) where
 
 import Prelude
+import Control.Comonad.Cofree.Trans (CofreeT, coiterT)
 import Control.Comonad.Store (class ComonadStore, Store, store, seeks)
 import Control.Plus (empty)
+import Data.Functor.Pairing (type (⋈))
+import Data.Functor.Pairing.PairEffect (pairEffect)
+import Data.Functor.Product.Infix ((*:*), (>:<))
+import Data.Maybe (Maybe(..), fromMaybe')
 import Data.Newtype (unwrap)
-import Proact.Comonad.Trans.Cofree (CofreeT, coiterT)
+import Partial.Unsafe (unsafeCrashWith)
+import Record (merge)
 
-import Coproduct ((*:*))
-import Motor.Story.Lens
 import Motor.Story.Types
-import Pairing (pairEffect)
 
 
-coSetRTitle ∷ ∀ w a
-            . ComonadStore Room w
-            ⇒ w a
-           → CoSetRTitleF (w a)
+coSetRTitle
+  ∷ ∀ w a
+  . ComonadStore TempRoom w
+  ⇒ w a
+  → CoSetRTitleF (w a)
 coSetRTitle w = CoSetRTitle $ \title →
-  seeks (rTitle .~ title) w
+  seeks (_ { title = Just title}) w
 
-coSetRDescr ∷ ∀ w a
-            . ComonadStore Room w
-            ⇒ w a
-            → CoSetRDescrF (w a)
+coSetRDescr
+  ∷ ∀ w a
+  . ComonadStore TempRoom w
+  ⇒ w a
+  → CoSetRDescrF (w a)
 coSetRDescr w = CoSetRDescr $ \action →
-  seeks (rDescr .~ action) w
+  seeks (_ { descr = Just action}) w
 
-coSetRExits ∷ ∀ w a
-            . ComonadStore Room w
-            ⇒ w a
-            → CoSetRExitsF (w a)
+coSetRExits
+  ∷ ∀ w a
+  . ComonadStore TempRoom w
+  ⇒ w a
+  → CoSetRExitsF (w a)
 coSetRExits w = CoSetRExits $ \roomBuilder →
-  seeks (rExitsBuilder .~ roomBuilder) w
+  seeks (_ { exitsBuilder = roomBuilder}) w
 
-coSetRItems ∷ ∀ w a
-            . ComonadStore Room w
-            ⇒ w a
-            → CoSetRItemsF (w a)
+coSetRItems
+  ∷ ∀ w a
+  . ComonadStore TempRoom w
+  ⇒ w a
+  → CoSetRItemsF (w a)
 coSetRItems w = CoSetRItems $ \oids →
-  seeks (rItems .~ oids) w
+  seeks (_ { items = oids }) w
 
 
-
-type Stack                    = Store Room
+-- same as Room, but with Maybe for required fields
+type TempRoom =
+  { title        ∷ Maybe String
+  , descr        ∷ Maybe (Action Unit)
+  , exitsBuilder ∷ ExitsBuilder Unit
+  , items        ∷ Array Oid
+  }
+type Stack                    = Store TempRoom
 type RoomBuilderInterpreter a = CofreeT CoRoomBuilderF Stack a
 
-mkCofree ∷ ∀ a
-          . Stack a
-         → RoomBuilderInterpreter a
+mkCofree
+  ∷ ∀ a
+  . Stack a
+  → RoomBuilderInterpreter a
 mkCofree =
   coiterT (   coSetRTitle
           *:* coSetRDescr
@@ -57,24 +71,36 @@ mkCofree =
           *:* coSetRItems
           )
 
-interpret ∷ ∀ a r c
-          . (a → r → c)
-          → RoomBuilderInterpreter a
-          → RoomBuilder r
-          → c
+interpret
+  ∷ ∀ a r c
+  . (a → r → c)
+  → RoomBuilderInterpreter a
+  → RoomBuilder r
+  → c
 interpret f interpreter =
-    unwrap <<< pairEffect f interpreter
+    unwrap <<< pairEffect roomBuilderPairing f interpreter
+
+roomBuilderPairing ∷ CoRoomBuilderF ⋈ RoomBuilderF
+roomBuilderPairing = setRTitlePairing
+                  >:< setRDescrPairing
+                  >:< setRExitsPairing
+                  >:< setRItemsPairing
 
 
-buildRoom ∷ ∀ r
-          . RoomBuilder r → Room
+buildRoom
+  ∷ ∀ r
+  . RoomBuilder r
+  → Room
 buildRoom roomBuilder =
-  let start                  ∷ Stack Room
-      start                  = store id $
-                                 { title        : "1"-- unsafeCrashWith "title - not set"
-                                 , descr        : pure unit -- unsafeCrashWith "title - not set"
-                                 , exitsBuilder : pure unit
-                                 , items        : empty
-                                 }
-      roomBuilderInterpreter = mkCofree start
-  in interpret (\l _ → l) roomBuilderInterpreter roomBuilder
+  let start ∷ Stack TempRoom
+      start = store identity
+               { title        : Nothing
+               , descr        : Nothing
+               , exitsBuilder : pure unit
+               , items        : empty
+               }
+      interpreter = mkCofree start
+      tempRoom = interpret (\l _ → l) interpreter roomBuilder
+  in merge { title : fromMaybe' (\_ -> unsafeCrashWith "title not defined") tempRoom.title }
+   $ merge { descr : fromMaybe' (\_ -> unsafeCrashWith "desc not defined")  tempRoom.descr }
+   $ tempRoom

@@ -1,24 +1,24 @@
 module Story.CaptainFateSpec where
 
 import Prelude
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Console (CONSOLE, log)
 import Control.Monad.State (evalState)
-import Story.CaptainFate (story, walkthrough)
 import Data.Foldable (intercalate)
 import Data.Array as A
 import Data.Either (Either(..), either)
 import Data.Tuple (Tuple(..), snd)
-import Test.Assert (ASSERT, assert')
+import Effect (Effect)
+import Effect.Console (log)
 import Motor.History as H
 import Motor.Story (StoryBuilder)
 import Motor.Interpreter.StoryInterpreter (buildStory)
 import Partial.Unsafe (unsafeCrashWith)
+import Story.CaptainFate (story, walkthrough)
+import Test.Assert (assert')
 
 
-spec ∷ ∀ e. Eff (console ∷ CONSOLE, assert ∷ ASSERT | e) Unit
+spec ∷ Effect Unit
 spec = do
-  let Tuple historicTxt txt = either unsafeCrashWith id $ initStory story (intercalate "\n" $ A.reverse walkthrough)
+  let Tuple historicTxt txt = either unsafeCrashWith identity $ initStory story (intercalate "\n" $ A.reverse walkthrough)
   log (intercalate "\n\n" historicTxt)
   assert' "replay of walkthrough doesn't break" $ [] == txt --
 

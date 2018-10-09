@@ -1,11 +1,7 @@
-module View.Browser.Types where
+module Motor.View.Browser.Types where
 
 import Prelude (class Applicative, class Apply, class Bind, class Functor,
   class Monad, class Semigroup, class Show, Unit, apply, bind, discard, pure, show, void, ($), (<<<), (<>), (>>=), (||))
-import Browser.WebStorage (WEB_STORAGE)
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Class (class MonadEff, liftEff)
-import Control.Monad.Eff.Console (CONSOLE)
 import Control.Monad.State.Trans (StateT, runStateT, get)
 import Control.Monad.State.Class (class MonadState, state)
 import Control.Monad.Trans.Class (lift)
@@ -17,11 +13,12 @@ import Data.Monoid (class Monoid, mempty)
 import Data.Newtype (class Newtype, unwrap)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
-import DOM (DOM())
-import React (ReactProps, ReactRefs, ReactState, ReactThis, ReadOnly, ReadWrite, Read, Write, readState, writeState)
+import Effect (Effect)
+import Effect.Class (class MonadEffect, liftEffect)
 import Motor.Story.Lens (sInventory, (^.))
 import Motor.Story.Types (Action, Oid, Story)
 import Motor.Util (currentRoom, toObject)
+import React (ReactThis, getState, setState)
 
 
 data UiState = UiState { options ∷ Array Option
@@ -49,13 +46,7 @@ type AppState = { story ∷ Story
                           }
                 }
 
-newtype SS a = SS (WriterT UiState (StateT Story (Eff ( console    ∷ CONSOLE
-                                                      , dom        ∷ DOM
-                                                      , props      ∷ ReactProps
-                                                      , refs       ∷ ReactRefs ReadOnly
-                                                      , state      ∷ ReactState ReadWrite
-                                                      , webStorage ∷ WEB_STORAGE
-                                                      ))) a)
+newtype SS a = SS (WriterT UiState (StateT Story Effect) a)
 
 derive instance newtypeSS ∷ Newtype (SS a) _
 
@@ -79,36 +70,24 @@ instance monadStateSS ∷ MonadState Story SS where
 instance monadTellSS ∷ MonadTell UiState SS where
   tell = SS <<< tell
 
-instance monadEffSS ∷ MonadEff ( console     ∷ CONSOLE
-                                , dom        ∷ DOM
-                                , props      ∷ ReactProps
-                                , refs       ∷ ReactRefs (read ∷ Read)
-                                , state      ∷ ReactState (read ∷ Read, write ∷ Write)
-                                , webStorage ∷ WEB_STORAGE
-                                ) SS where
-  liftEff = SS <<< liftEff
+instance monadEffSS ∷ MonadEffect SS where
+  liftEffect = SS <<< liftEffect
 
 
 runSS
   ∷ ∀ props a
   . ReactThis props AppState
   → SS a
-  → Eff ( console    ∷ CONSOLE
-        , dom        ∷ DOM
-        , props      ∷ ReactProps
-        , refs       ∷ ReactRefs ReadOnly
-        , state      ∷ ReactState ReadWrite
-        , webStorage ∷ WEB_STORAGE
-        ) a
+  → Effect a
 runSS ctx ssa = do
-  state ← readState ctx
+  state ← getState ctx
   Tuple (Tuple a (UiState ui)) story' ← runStateT (runWriterT (unwrap ssa)) state.story
-  void $ writeState ctx state { story = story'
-                              , ui    = { options : ui.options
-                                        , txt     : if ui.clear then [] else state.ui.txt <> state.ui.newTxt
-                                        , newTxt  : ui.txts
-                                        }
-                              }
+  void $ setState ctx state { story = story'
+                            , ui    = { options : ui.options
+                                      , txt     : if ui.clear then [] else state.ui.txt <> state.ui.newTxt
+                                      , newTxt  : ui.txts
+                                      }
+                            }
   pure a
 
 

@@ -1,16 +1,9 @@
-module View.CommandLine.Types
+module Motor.View.CommandLine.Types
   ( SS
   , runSS
   ) where
 
 import Prelude
-import Control.Monad.Aff (Aff, runAff_)
-import Control.Monad.Aff.Console (CONSOLE)
-import Control.Monad.Aff.Class (class MonadAff, liftAff)
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Class (class MonadEff, liftEff)
-import Control.Monad.Eff.Console as EC
-import Control.Monad.Eff.Exception (EXCEPTION)
 import Control.Monad.State.Class (class MonadState, state)
 import Control.Monad.State.Trans (StateT, runStateT)
 import Control.Monad.Trans.Class (lift)
@@ -19,17 +12,17 @@ import Control.Monad.Reader.Class (class MonadAsk, ask)
 import Data.Either (either)
 import Data.Newtype (class Newtype, unwrap)
 import Data.Tuple (Tuple(..))
-import LineReader (READLINE)
-import Node.ReadLine (Interface)
+import Effect (Effect)
+import Effect.Aff (Aff, runAff_)
+import Effect.Aff.Class (class MonadAff, liftAff)
+import Effect.Class (class MonadEffect, liftEffect)
+import Effect.Console as EC
 import Motor.Story.Types (Story)
+import Node.ReadLine (Interface)
 
 
 newtype SS a = SS (ReaderT Interface
-                    (StateT Story
-                      (Aff ( console   ∷ CONSOLE
-                           , readline  ∷ READLINE
-                           , exception ∷ EXCEPTION
-                           )))
+                    (StateT Story Aff)
                   a)
 
 derive instance newtypeSS ∷ Newtype (SS a) _
@@ -39,10 +32,7 @@ runSS
   . Story
   → Interface
   → SS a
-  → Eff ( console   ∷ CONSOLE
-        , exception ∷ EXCEPTION
-        , readline  ∷ READLINE
-        ) Unit
+  → Effect Unit
 runSS story interface ss =
   runAff_ (either (EC.error <<< show) (\(Tuple unit' story') → EC.log "the end")) $
     runStateT (runReaderT (unwrap ss) interface) story
@@ -64,16 +54,10 @@ instance monadSS ∷ Monad SS
 instance monadStateSS ∷ MonadState Story SS where
   state = SS <<< lift <<< state
 
-instance monadEffSS ∷ MonadEff ( console   ∷ CONSOLE
-                               , exception ∷ EXCEPTION
-                               , readline  ∷ READLINE
-                               ) SS where
-  liftEff = SS <<< liftEff
+instance monadEffectSS ∷ MonadEffect SS where
+  liftEffect = SS <<< liftEffect
 
-instance monadAffSS ∷ MonadAff ( console   ∷ CONSOLE
-                               , exception ∷ EXCEPTION
-                               , readline  ∷ READLINE
-                               ) SS where
+instance monadAffSS ∷ MonadAff SS where
   liftAff = SS <<< liftAff
 
 instance monadAskSS ∷ MonadAsk Interface SS where

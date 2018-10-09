@@ -3,7 +3,7 @@ all: build
 setup:
 	set -e
 	npm install
-	npm run bower install
+	npm run setup
 
 build: setup
 	npm run build
@@ -27,7 +27,7 @@ zip-src:
 
 
 run:
-	pulp run
+	npm run run
 
 runweb:
-	firefox html/index.html
+	firefox public/index.html
