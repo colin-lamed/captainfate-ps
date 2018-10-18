@@ -3,8 +3,9 @@ module Motor.View.CommandLine.View
   ) where
 
 import Prelude
-import Control.Monad.State.Trans (get, modify_)
+
 import Control.Monad.Reader.Trans (ask)
+import Control.Monad.State.Trans (get)
 import Data.Array as A
 import Data.Either (Either(..), either)
 import Data.Foldable (intercalate)
@@ -16,19 +17,22 @@ import Effect.Aff (makeAff, nonCanceler)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Console as EC
-import Node.ReadLine (createConsoleInterface, noCompletion, question) as RL
-import Motor.Interpreter.StoryInterpreter (buildStory)
 import Motor.Interpreter.ActionInterpreter (runAction)
+import Motor.Interpreter.StoryInterpreter (buildStory)
+import Motor.Story.Lens (sInit, sInventory, sSay, sTitle, (.=), (^.))
 import Motor.Story.Types (Action, Object, Oid, Rid, Room, StoryBuilder)
-import Motor.Story.Lens (sInit, sInventory, sSay, sTitle, (.~), (^.))
 import Motor.Util (currentRoom, goto, listItems, listExits, takeItemS, the, toObject, useWith, useItself)
 import Motor.View.CommandLine.Types (SS, runSS)
+import Node.ReadLine (createConsoleInterface, noCompletion, question) as RL
+import Partial.Unsafe (unsafeCrashWith)
 
 
 -- | Runs the app as a command-line app
 commandLineView ∷ StoryBuilder Unit → Effect Unit
 commandLineView sb = do
-  let story = buildStory sb
+  story <- case buildStory sb of
+             Left err -> unsafeCrashWith $ "failed to create story: " <> err
+             Right story -> pure story
   EC.log "----------"
   EC.log (story ^.sTitle)
   EC.log "----------"
@@ -263,7 +267,7 @@ onSelectUseItselfO oid = do
 
 sayAction ∷ Action Unit → SS Unit
 sayAction action = do
-  modify_ $ sSay .~ []
+  sSay .= []
   txt   ← runAction action
   putStrLns txt
   story ← get

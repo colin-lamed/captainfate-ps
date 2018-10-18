@@ -9,24 +9,19 @@
     "console",
     "debug",
     "exists",
+    "foreign",
     "free",
     "freet",
-    "foreign",
     "functors",
     "lists",
     "node-readline",
     "nullable",
+    "pairing",
     "parsing",
     "profunctor-lenses",
     "react-dom",
+    "test-unit",
     "transformers",
-    "pairing",
     "web-html"
-  ],
-  "not_supported": [
-    "dynamic",
-    "typeable",
-    "proact",
-    "webstorage"
   ]
 }

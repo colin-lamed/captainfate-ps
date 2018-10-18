@@ -12,7 +12,7 @@ import Data.Tuple (Tuple(..))
 import Foreign (unsafeFromForeign, unsafeToForeign)
 import Partial.Unsafe (unsafeCrashWith)
 
-import Motor.Story.Lens
+import Motor.Story.Lens (sStates, (%~), (^.))
 import Motor.Story.Types
 
 

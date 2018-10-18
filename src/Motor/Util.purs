@@ -85,7 +85,7 @@ takeItemS ∷ ∀ m. MonadState Story m ⇒ Oid → m Unit
 takeItemS oid = do
   sInventory <>= [oid]
   -- rId ← currentRoom
-  -- modify $ (sRooms <<< at rId <<< _Just <<< rItems) %~ filter (_ /= oid)
+  -- (sRooms <<< at rId <<< _Just <<< rItems) %= filter (_ /= oid)
 
 lookupSay ∷ ∀ m. MonadState Story m ⇒ String → m (Either String (Action Unit))
 lookupSay say' = do

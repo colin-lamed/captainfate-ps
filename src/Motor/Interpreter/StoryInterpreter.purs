@@ -5,23 +5,18 @@ module Motor.Interpreter.StoryInterpreter
 import Prelude
 import Control.Comonad.Cofree.Trans (CofreeT, coiterT)
 import Control.Comonad.Store (class ComonadStore, Store, store, seeks)
-import Control.Plus (empty)
-import Data.Exists (Exists, mkExists)
-import Data.Map as M
-import Data.Functor.Coproduct (Coproduct(..))
+import Data.Either (Either(..), note)
+import Data.Exists (mkExists)
 import Data.Functor.Pairing (type (⋈))
 import Data.Functor.Pairing.PairEffect (pairEffect)
-import Data.Functor.Product (Product(..))
 import Data.Functor.Product.Infix ((*:*), (>:<))
 import Data.Map as M
-import Data.Maybe (Maybe(..), fromMaybe')
+import Data.Maybe (Maybe(..))
 import Data.Newtype (unwrap)
 import Data.Tuple (Tuple(..))
 import Foreign (Foreign, unsafeToForeign)
-import Partial.Unsafe (unsafeCrashWith)
 import Record (merge)
 
-import Motor.Story.Lens
 import Motor.Story.Types
 import Motor.Interpreter.RoomInterpreter (buildRoom)
 import Motor.Interpreter.ObjectInterpreter (buildObject)
@@ -42,10 +37,7 @@ coMkPlayer
   ⇒ w a
   → CoMkPlayerF (w a)
 coMkPlayer w = CoMkPlayer $ \inventory location →
-  seeks (_ { player = Just { inventory : inventory
-                           , location  : location
-                           }
-           }) w
+  seeks (_ { player = Just { inventory, location } }) w
 
 coMkObject
   ∷ ∀ w a
@@ -53,8 +45,8 @@ coMkObject
   ⇒ w a
   → CoMkObjectF (w a)
 coMkObject w = CoMkObject $ \oid ob →
-  let obj = buildObject ob
-  in seeks (\s -> s { objects = M.insert oid obj s.objects } ) w
+  let eobj = buildObject oid ob
+  in seeks (\s -> s { objects = M.insert oid <$> eobj <*> s.objects } ) w
 
 coMkRoom
   ∷ ∀ w a
@@ -62,8 +54,8 @@ coMkRoom
   ⇒ w a
   → CoMkRoomF (w a)
 coMkRoom w = CoMkRoom $ \rid rb →
-  let room = buildRoom rb
-  in seeks (\s -> s { rooms = M.insert rid room s.rooms }) w
+  let eRoom = buildRoom rid rb
+  in seeks (\s -> s { rooms = M.insert rid <$> eRoom <*> s.rooms }) w
 
 coSetSInit
   ∷ ∀ w a
@@ -96,11 +88,12 @@ coMkState w =
 
 
 -- same as Story, but with Maybe for required fields
+-- and Either for failable fields
 type TempStory =
   { title    ∷ Maybe String
   , player   ∷ Maybe Player
-  , rooms    ∷ M.Map Rid Room
-  , objects  ∷ M.Map Oid Object
+  , rooms    ∷ Either String (M.Map Rid Room)
+  , objects  ∷ Either String (M.Map Oid Object)
   , states   ∷ M.Map String Foreign
   , score    ∷ Int
   , maxScore ∷ Maybe Int
@@ -143,14 +136,14 @@ storyBuilderPairing =   setSTitlePairing
                     >:< setMaxScorePairing
 
 
-buildStory ∷ StoryBuilder Unit → Story
-buildStory storyBuilder =
+buildStory ∷ StoryBuilder Unit → Either String Story
+buildStory storyBuilder = do
   let start ∷ Stack TempStory
       start = store identity
                { title   : Nothing
                , player  : Nothing
-               , rooms   : M.empty
-               , objects : M.empty
+               , rooms   : Right M.empty
+               , objects : Right M.empty
                , states  : M.empty
                , score   : 0
                , maxScore: Nothing
@@ -159,7 +152,8 @@ buildStory storyBuilder =
                }
       interpreter = mkCofree start
       tempStory = interpret (\l _ → l) interpreter storyBuilder
-  in Story
-    $ merge { title  : fromMaybe' (\_ -> unsafeCrashWith "title not defined" ) tempStory.title }
-    $ merge { player : fromMaybe' (\_ -> unsafeCrashWith "player not defined") tempStory.player }
-      tempStory
+  title   <- note "story title not defined" tempStory.title
+  player  <- note "story player not defined" tempStory.player
+  rooms   <- tempStory.rooms
+  objects <- tempStory.objects
+  pure $ Story $ merge { title, player, rooms, objects } tempStory

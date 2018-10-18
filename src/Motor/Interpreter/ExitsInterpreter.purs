@@ -8,14 +8,11 @@ import Control.Comonad.Store (Store, store)
 import Control.Comonad.Traced (class ComonadTraced, TracedT(TracedT), track)
 import Control.Extend (duplicate)
 import Control.Monad.State (class MonadState, state)
-import Data.Functor.Coproduct (Coproduct(..))
 import Data.Functor.Pairing (type (⋈))
 import Data.Functor.Pairing.PairEffect (pairEffect)
-import Data.Functor.Product (Product(..))
 import Data.Functor.Product.Infix((*:*), (>:<))
 import Data.Newtype (unwrap)
 import Data.Tuple (Tuple(..))
-import Motor.Story.Lens
 
 import Motor.Story.Types
 import Motor.Interpreter.StateInterpreter(coGetState)

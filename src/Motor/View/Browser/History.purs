@@ -9,10 +9,8 @@ import Data.Either (Either(..))
 import Data.Maybe (maybe)
 import Data.Nullable (Nullable, toMaybe)
 import Effect (Effect)
-import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Motor.History as H
-import Motor.View.Browser.Types (SS)
 
 readPath
   ∷ Effect String
@@ -28,12 +26,12 @@ writePath path =
 
 updateHistory
   ∷ (H.History → H.History)
-  → SS Unit
+  → Effect Unit
 updateHistory f = do
-  oldPath ← liftEffect readPath
+  oldPath ← readPath
   case H.deserialse oldPath of
-    Right h → liftEffect $ writePath $ H.serialise $ f h
-    Left h  → liftEffect $ log ("Failed to parse history: " <> h)
+    Right h  → writePath $ H.serialise $ f h
+    Left err → log ("Failed to parse history: " <> err)
 
 foreign import getLocalStorage :: String -> Effect (Nullable String)
 

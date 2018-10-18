@@ -10,19 +10,16 @@ import Control.Comonad.Traced (class ComonadTraced, TracedT(TracedT), track)
 import Control.Extend (duplicate)
 import Control.Monad.State (class MonadState, state)
 import Data.Array ((:), filter, elem)
-import Data.Functor.Coproduct (Coproduct(..))
 import Data.Functor.Pairing (type (⋈))
 import Data.Functor.Pairing.PairEffect (pairEffect)
-import Data.Functor.Product (Product(..))
-import Data.Functor.Product.Infix (type (⊕), type (⊗), (*:*), (>:<))
-import Data.List as L
+import Data.Functor.Product.Infix ((*:*), (>:<))
 import Data.Maybe (Maybe, maybe)
 import Data.Map as M
 import Data.Newtype (unwrap)
 import Data.Set as S
 import Data.Tuple (Tuple(..))
 
-import Motor.Story.Lens
+import Motor.Story.Lens (_Just, at, rItems, sInventory, sLocation, sRooms, sSay, sScore, (%~), (<>~), (^.))
 import Motor.Story.Types
 import Motor.Interpreter.StateInterpreter (coGetState, coSetState)
 
@@ -209,5 +206,5 @@ runAction' action =
     let start ∷ Stack (Tuple (Array String) Story)
         start = TracedT $ store (\s' ts → Tuple ts s') s
         interpreter = mkCofree start
-        Tuple (Tuple txts s') r = interpret (\l r → Tuple l r) interpreter action
+        Tuple (Tuple txts s') r = interpret Tuple interpreter action
     in Tuple (Tuple txts r) s'

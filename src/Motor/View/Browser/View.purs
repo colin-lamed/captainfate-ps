@@ -3,25 +3,27 @@ module Motor.View.Browser.View
   ) where
 
 import Prelude
-import Control.Monad.State (evalState, runState, modify_, get)
+
+import Control.Monad.State (evalState, get, runState, runStateT)
 import Data.Array (concatMap, null)
 import Data.Either (Either(..))
 import Data.Foldable (intercalate)
 import Data.Maybe (Maybe(..), fromJust)
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
+import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Motor.History as H
-import Motor.Interpreter.StoryInterpreter (buildStory)
 import Motor.Interpreter.ActionInterpreter (runAction)
-import Motor.Story.Lens (sInventory, sMaxScore, sSay, sScore, sTitle, (.~), (^.))
+import Motor.Interpreter.StoryInterpreter (buildStory)
+import Motor.Story.Lens (sInventory, sMaxScore, sSay, sScore, sTitle, (.=), (^.))
 import Motor.Story.Types (Action, DirHint(..), Oid, Rid, StoryBuilder)
 import Motor.Util (currentRoom, goto, listExits, takeItemS, the, toObject, roomDesc, useItself, useWith)
-import Motor.View.Browser.History (readPath, writePath, updateHistory)
+import Motor.View.Browser.History (readPath, writePath, updateHistory) as H
 import Motor.View.Browser.Types (AppState, Option(..), SS, addText, clearText, initOptions, resetOptions, runSS, setOptions)
 import Motor.View.Browser.Utils (getOffsetHeight)
-import Partial.Unsafe (unsafePartial)
-import React as R -- (ReactElement, ReactSpec, ReactThis, createClass, createFactory, readState, spec)
+import Partial.Unsafe (unsafeCrashWith, unsafePartial)
+import React as R
 import React.DOM as D
 import React.DOM.Props as P
 import ReactDOM (render)
@@ -32,24 +34,23 @@ import Web.HTML.HTMLDocument (toNonElementParentNode)
 import Web.HTML.Window (document)
 
 
+updateHistory ∷ (H.History → H.History) → SS Unit
+updateHistory = liftEffect <<< H.updateHistory
+
 onClickInventory ∷ Array Oid → SS Unit
-onClickInventory items =
-  setOptions $ map InventoryO items
+onClickInventory = setOptions <<< map InventoryO
 
 onClickTake ∷ Array Oid → SS Unit
-onClickTake items =
-  setOptions $ map TakeO items
+onClickTake = setOptions <<< map TakeO
 
 onClickUse ∷ Array Oid → SS Unit
-onClickUse itemsToUse =
-  setOptions $ map UseO itemsToUse
+onClickUse = setOptions <<< map UseO
 
 onClickExamine ∷ Array Oid → SS Unit
-onClickExamine items = do
-  setOptions $ map InventoryO items
+onClickExamine = setOptions <<< map InventoryO
 
 onClickInventoryO ∷ Oid → SS Unit
-onClickInventoryO oid = do
+onClickInventoryO oid =
   setOptions [ExamineO oid, UseO oid]
 
 onClickExamineO ∷ Oid → SS Unit
@@ -126,7 +127,7 @@ onClickSay label atn = do
 
 sayAction ∷ Action Unit → SS Unit
 sayAction atn = do
-  txts ← do modify_ $ sSay .~ []
+  txts ← do sSay .= []
             runAction atn
   addText txts
   story ← get
@@ -142,21 +143,24 @@ initState
   → String
   → Effect AppState
 initState sb path = do
-  let story = buildStory sb
-      Tuple res story' = runState (H.initStory path) story
-  txts ← case res of
-              Right (Tuple _ initTxt) → pure $ initTxt
-              Left  (Tuple h err)     → do log $ "Couldn't replay state: " <> err
-                                           -- replace history with amount successfully restored
-                                           writePath $ H.serialise h
-                                           pure []
+  story ← case buildStory sb of
+            Left err    → unsafeCrashWith $ "failed to create story: " <> err
+            Right story → pure story
 
-  -- TODO tidy the following up - note we need to display room on each room display (see exitAction), should we do it outside of initState?
-  let Tuple roomTxt story'' = runState roomDesc story'
+  Tuple { txts, roomTxt, options } story' ← flip runStateT story $ do
+       res     ← H.initStory path
+       txts    ← case res of
+                   Right { initTxt }             → pure initTxt
+                   Left  { restoredPath, error } → do liftEffect $ log $ "Couldn't replay state: " <> error
+                                                      -- replace history with amount successfully restored
+                                                      liftEffect $ H.writePath restoredPath
+                                                      pure []
+       roomTxt ← roomDesc
+       options ← initOptions
+       pure $ { txts, roomTxt, options }
 
-  let options = evalState initOptions story''
 
-  pure { story: story''
+  pure { story: story'
        , ui   : { options: options
                 , txt    : []
                 , newTxt : txts <> roomTxt
@@ -170,14 +174,9 @@ afterComponentUpdate
   → snapshot
   → Effect Unit
 afterComponentUpdate _ state _ = do
-  doc ← window >>= document
-
-  -- mElmt2 ← getElementById "old-text" (toNonElementParentNode doc)
-  -- let elmt2 = unsafePartial fromJust mElmt2
-  oh ← getOffsetHeight "old-text"
-
-  mElmt ← getElementById "text-area" (toNonElementParentNode doc)
-  let elmt = unsafePartial fromJust mElmt
+  doc  ← window >>= document
+  oh   ← getOffsetHeight "old-text"
+  elmt ← getElementById "text-area" (toNonElementParentNode doc) <#> unsafePartial fromJust
   setScrollTop oh elmt
   pure unit
 
@@ -195,10 +194,8 @@ mainContent state0 =
       {story, ui} ← R.getState this
       let r   = evalState currentRoom story
 
-      let --renderRoom ∷ D.ReactElement
           renderRoom     = D.text r.title
 
-          --renderProgress ∷ D.ReactElement
           renderProgress = D.text $ case story ^.sMaxScore of
                                       Just maxScore → show (100 * (story ^.sScore) / maxScore) <> "% completed"
                                       Nothing       → "Score " <> show (story ^.sScore)
@@ -224,7 +221,6 @@ mainContent state0 =
                                                                        ]
 
 
-          --renderTextArea ∷ D.ReactElement
           renderTextArea = D.div' $ [  D.span [ P._id "old-text"
                                               , P.style { color: "rgb(80,80,80)" }
                                               ] $ concatMap (\txt → [D.text txt, D.br', D.br']) ui.txt
@@ -255,7 +251,6 @@ mainContent state0 =
           toOption (UseO            oid) = { buttonLabel: "Use "     <> title oid , buttonAction: runSS this $ onClickUseO       oid}
           toOption (UseWith   oid1 oid2) = { buttonLabel: "With "    <> title oid2, buttonAction: runSS this $ onClickUseWith    oid1 oid2}
 
-          --renderButtonArea ∷ D.ReactElement
           renderButtonArea = D.span' $ map (renderButton <<< toOption) ui.options
 
       pure $
@@ -290,10 +285,10 @@ browserView
   ∷ StoryBuilder Unit
   → Effect Unit
 browserView sb = do
-  path ← readPath
-  state0 ← initState sb path
-  let component = R.createLeafElement (mainContent state0) {}
+  path  ← H.readPath
+  state ← initState sb path
+  let component = R.createLeafElement (mainContent state) {}
   doc ← window >>= document
-  ctr ← getElementById "main" (toNonElementParentNode doc)
-  _   ← render component (unsafePartial fromJust ctr)
+  ctr ← getElementById "main" (toNonElementParentNode doc) <#> unsafePartial fromJust
+  _   ← render component ctr
   pure unit

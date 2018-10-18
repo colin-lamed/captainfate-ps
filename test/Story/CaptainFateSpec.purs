@@ -1,34 +1,33 @@
 module Story.CaptainFateSpec where
 
 import Prelude
+
 import Control.Monad.State (evalState)
-import Data.Foldable (intercalate)
 import Data.Array as A
-import Data.Either (Either(..), either)
-import Data.Tuple (Tuple(..), snd)
-import Effect (Effect)
+import Data.Bifunctor (lmap)
+import Data.Either (Either(..))
+import Data.Foldable (intercalate)
+import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Motor.History as H
-import Motor.Story (StoryBuilder)
 import Motor.Interpreter.StoryInterpreter (buildStory)
-import Partial.Unsafe (unsafeCrashWith)
+import Motor.Story (StoryBuilder)
 import Story.CaptainFate (story, walkthrough)
-import Test.Assert (assert')
+import Test.Unit (TestSuite, failure, test)
+import Test.Unit.Assert (assert)
 
+spec ∷ TestSuite
+spec = test "run walkthrough" do
+  let completePath = intercalate "\n" $ A.reverse walkthrough
+  case initStory story completePath of
+    Left err -> failure err
+    Right { historicTxt, initTxt } -> do
+      liftEffect $ log (intercalate "\n\n" historicTxt)
+      assert "replay of walkthrough doesn't break" $ [] == initTxt
 
-spec ∷ Effect Unit
-spec = do
-  let Tuple historicTxt txt = either unsafeCrashWith identity $ initStory story (intercalate "\n" $ A.reverse walkthrough)
-  log (intercalate "\n\n" historicTxt)
-  assert' "replay of walkthrough doesn't break" $ [] == txt --
-
-
-
--- import Control.Monad.Trans.State       (evalState)
---
--- import TextAd.Model.Core
--- import TextAd.Interpreter.StoryBuilder (toStory)
-
-initStory ∷ StoryBuilder Unit → String → Either String (Tuple (Array String) (Array String))
-initStory story path =
-  either (Left <<< snd) Right $ evalState (H.initStory path) (buildStory story)
+initStory ∷ StoryBuilder Unit → String → Either String { historicTxt ∷ Array String
+                                                       , initTxt     ∷ Array String
+                                                       }
+initStory storyBuilder path = do
+  story ← buildStory storyBuilder
+  lmap _.error $ evalState (H.initStory path) story

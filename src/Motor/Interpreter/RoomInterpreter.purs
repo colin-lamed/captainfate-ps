@@ -6,16 +6,15 @@ import Prelude
 import Control.Comonad.Cofree.Trans (CofreeT, coiterT)
 import Control.Comonad.Store (class ComonadStore, Store, store, seeks)
 import Control.Plus (empty)
+import Data.Either (Either, note)
 import Data.Functor.Pairing (type (⋈))
 import Data.Functor.Pairing.PairEffect (pairEffect)
 import Data.Functor.Product.Infix ((*:*), (>:<))
-import Data.Maybe (Maybe(..), fromMaybe')
+import Data.Maybe (Maybe(..))
 import Data.Newtype (unwrap)
-import Partial.Unsafe (unsafeCrashWith)
 import Record (merge)
 
 import Motor.Story.Types
-
 
 coSetRTitle
   ∷ ∀ w a
@@ -38,8 +37,8 @@ coSetRExits
   . ComonadStore TempRoom w
   ⇒ w a
   → CoSetRExitsF (w a)
-coSetRExits w = CoSetRExits $ \roomBuilder →
-  seeks (_ { exitsBuilder = roomBuilder}) w
+coSetRExits w = CoSetRExits $ \exitsBuilder →
+  seeks (_ { exitsBuilder = exitsBuilder }) w
 
 coSetRItems
   ∷ ∀ w a
@@ -89,9 +88,10 @@ roomBuilderPairing = setRTitlePairing
 
 buildRoom
   ∷ ∀ r
-  . RoomBuilder r
-  → Room
-buildRoom roomBuilder =
+  . Rid
+  → RoomBuilder r
+  → Either String Room
+buildRoom rid roomBuilder = do
   let start ∷ Stack TempRoom
       start = store identity
                { title        : Nothing
@@ -101,6 +101,6 @@ buildRoom roomBuilder =
                }
       interpreter = mkCofree start
       tempRoom = interpret (\l _ → l) interpreter roomBuilder
-  in merge { title : fromMaybe' (\_ -> unsafeCrashWith "title not defined") tempRoom.title }
-   $ merge { descr : fromMaybe' (\_ -> unsafeCrashWith "desc not defined")  tempRoom.descr }
-   $ tempRoom
+  title <- note ("room " <> show rid <> " title not defined") tempRoom.title
+  descr <- note ("room " <> show rid <> " descr not defined") tempRoom.descr
+  pure $ merge { title, descr } tempRoom

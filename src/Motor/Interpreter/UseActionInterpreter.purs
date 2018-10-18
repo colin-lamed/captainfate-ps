@@ -72,7 +72,7 @@ runUseAction useAction oid =
     let start ∷ Stack (First (Tuple (Action Unit) Story))
         start = TracedT $ store (\s' fma' →
                    case unwrap fma' of
-                     Nothing → First Nothing
+                     Nothing  → First Nothing
                      Just ma' → First (Just $ Tuple ma' s')
                  ) s -- store ∷ (Story → (First (Action Unit) → First (Tuple (Action Unit) Story))) → Story → Store Story (First (Action Unit) → First (Tuple (Action Unit) Story))
         interpreter = mkCofree oid start

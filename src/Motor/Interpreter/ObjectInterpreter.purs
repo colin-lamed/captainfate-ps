@@ -5,13 +5,12 @@ module Motor.Interpreter.ObjectInterpreter
 import Prelude
 import Control.Comonad.Cofree.Trans (CofreeT, coiterT)
 import Control.Comonad.Store (class ComonadStore, Store, store, seeks)
-import Data.Either (Either(..))
+import Data.Either (Either(..), note)
 import Data.Functor.Pairing (type (⋈))
 import Data.Functor.Pairing.PairEffect (pairEffect)
 import Data.Functor.Product.Infix ((*:*), (>:<))
-import Data.Maybe (Maybe(..), fromMaybe')
+import Data.Maybe (Maybe(..))
 import Data.Newtype (unwrap)
-import Partial.Unsafe (unsafeCrashWith)
 import Record (merge)
 
 import Motor.Story.Types
@@ -122,9 +121,10 @@ objectBuilderPairing = setOTitlePairing
 
 buildObject
   ∷ ∀ r
-  . ObjectBuilder r
-  → Object
-buildObject objectBuilder =
+  . Oid
+  → ObjectBuilder r
+  → Either String Object
+buildObject oid objectBuilder = do
   let start ∷ Stack TempObject
       start = store identity
                { title    : Nothing
@@ -137,6 +137,6 @@ buildObject objectBuilder =
                }
       interpreter = mkCofree start
       tempObject = interpret (\l _ → l) interpreter objectBuilder
-  in merge { title : fromMaybe' (\_ -> unsafeCrashWith "title not defined") tempObject.title }
-   $ merge { descr : fromMaybe' (\_ -> unsafeCrashWith "desc not defined")  tempObject.descr }
-   $ tempObject
+  title <- note ("object " <> show oid <> " title not defined") tempObject.title
+  descr <- note ("object " <> show oid <> " descr not defined") tempObject.descr
+  pure $ merge { title, descr } tempObject
